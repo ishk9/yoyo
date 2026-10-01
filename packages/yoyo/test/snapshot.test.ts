@@ -81,6 +81,12 @@ describe('capture', () => {
     expect(capture().html).toContain('<link rel="stylesheet" href="https://fonts.example.com/css">')
   })
 
+  it('drops stylesheet links that have not loaded yet', () => {
+    document.head.innerHTML = '<link rel="stylesheet" href="/pending.css">'
+    fakeSheets([])
+    expect(capture().html).not.toContain('pending.css')
+  })
+
   it('inlines readable @import and keeps unreadable ones on top', () => {
     fakeSheets([
       {

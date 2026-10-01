@@ -63,6 +63,7 @@ export function capture(doc: Document = document): Capture {
   })
 
   // Swap each stylesheet's node for its live rules, in place, so cascade order holds.
+  const keep = new Set<Element>()
   for (const sheet of doc.styleSheets) {
     const node = sheet.ownerNode && twin.get(sheet.ownerNode as Element)
     if (!node) continue
@@ -73,6 +74,7 @@ export function capture(doc: Document = document): Capture {
     const css = serialize(sheet, sheet.href ?? doc.baseURI)
     if (css === null) {
       if (sheet.href) node.setAttribute('href', sheet.href) // cross-origin: keep the link, absolute
+      keep.add(node)
       continue
     }
     const style = doc.createElement('style')
@@ -89,6 +91,9 @@ export function capture(doc: Document = document): Capture {
   }
 
   clone.querySelectorAll(STRIP).forEach((el) => el.remove())
+  // A stylesheet link not in styleSheets is still loading: the live page doesn't render it yet,
+  // and keeping it would fetch whatever CSS is current when the snapshot is viewed.
+  clone.querySelectorAll('link[rel~=stylesheet]').forEach((el) => keep.has(el) || el.remove())
   const base = doc.createElement('base')
   base.href = doc.baseURI
   head.prepend(base)
