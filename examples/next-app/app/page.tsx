@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import styles from "./page.module.css";
 import ClientBits from "./client-bits";
+import Reveal from "./reveal";
 
 export default function Home() {
   return (
@@ -22,6 +23,9 @@ export default function Home() {
           <p key={i}>Row {i + 1}</p>
         ))}
       </div>
+      <Reveal>
+        <section className="rounded-lg bg-emerald-700 p-8 text-white">Revealed on scroll</section>
+      </Reveal>
       {Array.from({ length: 12 }, (_, i) => (
         <section key={i} className="rounded-lg bg-zinc-100 p-8 dark:bg-zinc-900">
           Section {i + 1}
