@@ -16,10 +16,20 @@ const mode = (p: Page) => ui(p).locator('.stage').getAttribute('data-mode')
 
 async function open(p: Page, url = '/') {
   await p.goto(url)
+  if (url === '/') {
+    // the previous test's CSS restore may still be compiling, and webpack doesn't always push
+    // the reload to a page opened mid-build; reload until we're past it
+    await expect(async () => {
+      const color = await p
+        .getByTestId('heading')
+        .evaluate((h) => getComputedStyle(h).color, null, { timeout: 3_000 })
+        .catch(() => 'missing') // dev server answered with an error page
+      if (color !== BLUE) await p.reload()
+      await expect(p.getByTestId('heading')).toHaveCSS('color', BLUE, { timeout: 3_000 })
+    }).toPass({ timeout: 30_000 })
+  }
   await expect(ui(p)).toBeAttached()
-  // the previous test's CSS restore may still be compiling; don't freeze its leftovers
   if (url !== '/') return
-  await expect(p.getByTestId('heading')).toHaveCSS('color', BLUE, { timeout: 20_000 })
   // hydrated: the canvas is painted in an effect
   await expect
     .poll(() => p.locator('canvas').evaluate((c: HTMLCanvasElement) => c.getContext('2d')!.getImageData(0, 0, 1, 1).data[3]))
@@ -48,8 +58,10 @@ async function setMode(p: Page, m: string, amount?: number) {
   await expect(frozen(p).getByTestId('heading')).toBeAttached()
 }
 
-/** Share of near-black pixels in a viewport region. */
-async function darkRatio(p: Page, clip: { x: number; y: number; width: number; height: number }) {
+type Clip = { x: number; y: number; width: number; height: number }
+
+/** RGBA bytes of a viewport region, decoded in the page from a screenshot. */
+async function rgba(p: Page, clip: Clip) {
   const png = (await p.screenshot({ clip })).toString('base64')
   return p.evaluate(async (b64) => {
     const img = new Image()
@@ -57,31 +69,30 @@ async function darkRatio(p: Page, clip: { x: number; y: number; width: number; h
     await img.decode()
     const ctx = new OffscreenCanvas(img.width, img.height).getContext('2d')!
     ctx.drawImage(img, 0, 0)
-    const d = ctx.getImageData(0, 0, img.width, img.height).data
-    let dark = 0
-    for (let i = 0; i < d.length; i += 4) if (d[i] < 16 && d[i + 1] < 16 && d[i + 2] < 16) dark++
-    return dark / (d.length / 4)
+    return Array.from(ctx.getImageData(0, 0, img.width, img.height).data)
   }, png)
 }
 
-async function pixel(p: Page, x: number, y: number) {
-  const png = (await p.screenshot({ clip: { x, y, width: 1, height: 1 } })).toString('base64')
-  return p.evaluate(async (b64) => {
-    const img = new Image()
-    img.src = `data:image/png;base64,${b64}`
-    await img.decode()
-    const ctx = new OffscreenCanvas(1, 1).getContext('2d')!
-    ctx.drawImage(img, 0, 0)
-    return Array.from(ctx.getImageData(0, 0, 1, 1).data.slice(0, 3))
-  }, png)
+/** Share of near-black pixels in a viewport region. */
+async function darkRatio(p: Page, clip: Clip) {
+  const d = await rgba(p, clip)
+  let dark = 0
+  for (let i = 0; i < d.length; i += 4) if (d[i] < 16 && d[i + 1] < 16 && d[i + 2] < 16) dark++
+  return dark / (d.length / 4)
 }
+
+const pixel = async (p: Page, x: number, y: number) => (await rgba(p, { x, y, width: 1, height: 1 })).slice(0, 3)
+const frozenY = (p: Page) => ui(p).locator('iframe.frozen').evaluate((f: HTMLIFrameElement) => f.contentWindow!.scrollY)
 
 const isRed = ([r, g, b]: number[]) => r > 180 && g < 80 && b < 80
 
 let errors: string[]
 test.beforeEach(({ page }) => {
   errors = []
-  page.on('pageerror', (e) => errors.push(e.message))
+  page.on('pageerror', (e) => {
+    // webpack dev sometimes reads its own manifest mid-write while recompiling; that's Next's server, not us
+    if (!e.stack?.includes('/next/dist/server/')) errors.push(e.message)
+  })
 })
 test.afterEach(() => {
   fs.writeFileSync(CSS, ORIGINAL)
@@ -242,9 +253,8 @@ test.describe('compare modes (R4)', () => {
     await setMode(page, 'onion', 50)
     await page.mouse.wheel(0, 800)
     await expect.poll(() => page.evaluate(() => scrollY)).toBe(800)
-    const frozenY = () => ui(page).locator('iframe.frozen').evaluate((f: HTMLIFrameElement) => f.contentWindow!.scrollY)
-    await expect.poll(frozenY).toBeGreaterThanOrEqual(799)
-    expect(await frozenY()).toBeLessThanOrEqual(801)
+    await expect.poll(() => frozenY(page)).toBeGreaterThanOrEqual(799)
+    expect(await frozenY(page)).toBeLessThanOrEqual(801)
   })
 
   test('frozen page shorter than live clamps without errors', async ({ page }) => {
@@ -255,7 +265,7 @@ test.describe('compare modes (R4)', () => {
     await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight))
     const [live, frz] = await Promise.all([
       page.evaluate(() => scrollY),
-      ui(page).locator('iframe.frozen').evaluate((f: HTMLIFrameElement) => f.contentWindow!.scrollY),
+      frozenY(page),
     ])
     expect(frz).toBeLessThan(live)
   })
@@ -277,7 +287,7 @@ test.describe('compare modes (R4)', () => {
       .toBe('complete')
     await livePane.locator('html').evaluate(() => scrollTo(0, 400))
     await expect
-      .poll(() => ui(page).locator('iframe.frozen').evaluate((f: HTMLIFrameElement) => f.contentWindow!.scrollY))
+      .poll(() => frozenY(page))
       .toBe(400)
   })
 })

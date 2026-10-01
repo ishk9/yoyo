@@ -3,6 +3,7 @@ import * as store from './store'
 
 type Action = 'freeze' | 'peek' | 'compare' | 'mode' | 'prev' | 'next'
 type Mode = 'slider' | 'onion' | 'difference' | 'split'
+type Shown = Mode | 'off' | 'peek'
 
 export interface Options {
   /** `e.code` combos, e.g. `{ freeze: 'Alt+Shift+KeyF' }`. Modifiers: Alt, Shift, Ctrl, Meta. */
@@ -26,8 +27,7 @@ const CSS = `
 .frozen, .live { position: fixed; top: 0; left: 0; width: 100%; height: 100%; border: 0; margin: 0; z-index: 2147483646; }
 .frozen { visibility: hidden; pointer-events: none; }
 .live, .seam, .amount { display: none; }
-[data-mode=peek] .frozen, [data-mode=slider] .frozen, [data-mode=onion] .frozen,
-[data-mode=difference] .frozen, [data-mode=split] .frozen { visibility: visible; }
+.stage:not([data-mode=off]) .frozen { visibility: visible; }
 [data-mode=slider] .frozen { clip-path: inset(0 0 0 var(--v)); }
 [data-mode=onion] .frozen { opacity: var(--o); }
 [data-mode=difference] .frozen { mix-blend-mode: difference; }
@@ -53,7 +53,7 @@ button:focus-visible, select:focus-visible { outline: 2px solid #f0f; }
 `
 
 const HTML = `
-<div class="stage">
+<div class="stage" data-mode="off">
   <iframe class="frozen" title="yoyo frozen snapshot" tabindex="-1"></iframe>
   <iframe class="live" title="yoyo live page"></iframe>
   <div class="seam"></div>
@@ -101,8 +101,10 @@ export function mountUI(opts: Options) {
   let loaded: string | undefined
   let peeking = false
   let toastTimer: ReturnType<typeof setTimeout>
+  let savedPrefs = ''
 
   const active = () => snaps.find((s) => s.id === activeId)
+  const oldestFirst = () => [...snaps].reverse()
 
   function toast(msg: string) {
     toastEl.textContent = msg
@@ -111,22 +113,27 @@ export function mountUI(opts: Options) {
     toastTimer = setTimeout(() => (toastEl.hidden = true), 1200)
   }
 
+  const shown = () => stage.dataset.mode as Shown
+  const isOverlay = () => shown() !== 'off' && shown() !== 'split'
+
   function paint() {
-    const mode = peeking ? 'peek' : prefs.comparing && active() ? prefs.mode : 'off'
-    stage.dataset.mode = mode
+    const comparing: Shown = prefs.comparing && active() ? prefs.mode : 'off'
+    stage.dataset.mode = peeking ? 'peek' : comparing
     stage.style.setProperty('--v', `${prefs.v}%`)
     stage.style.setProperty('--o', String(prefs.v / 100))
-    modeSelect.value = prefs.comparing && active() ? prefs.mode : 'off'
+    modeSelect.value = comparing
     amount.value = String(prefs.v)
-    if (mode === 'split' && live.dataset.route !== location.href) {
+    if (shown() === 'split' && live.dataset.route !== location.href) {
       live.dataset.route = live.src = location.href
     }
-    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs))
+    if (isOverlay()) mirror(window, frame.contentWindow)
+    const saved = JSON.stringify(prefs)
+    if (saved !== savedPrefs) localStorage.setItem(PREFS_KEY, (savedPrefs = saved))
   }
 
   function render() {
     chips.replaceChildren(
-      ...[...snaps].reverse().map((s) => {
+      ...oldestFirst().map((s) => {
         const chip = document.createElement('button')
         chip.className = s.id === activeId ? 'chip on' : 'chip'
         chip.title = 'Click: select · Double-click: rename'
@@ -183,7 +190,7 @@ export function mountUI(opts: Options) {
   }
 
   function step(dir: 1 | -1) {
-    const ordered = [...snaps].reverse()
+    const ordered = oldestFirst()
     if (!ordered.length) return
     const i = ordered.findIndex((s) => s.id === activeId)
     activeId = ordered[(i + dir + ordered.length) % ordered.length].id
@@ -200,7 +207,7 @@ export function mountUI(opts: Options) {
     to.scrollTo({ left: from.scrollX, top: from.scrollY, behavior: 'instant' })
     if (to.scrollX !== scrollX || to.scrollY !== scrollY) echoes.add(to)
   }
-  addEventListener('scroll', () => stage.dataset.mode !== 'split' && mirror(window, frame.contentWindow), { passive: true })
+  addEventListener('scroll', () => isOverlay() && mirror(window, frame.contentWindow), { passive: true })
   frame.addEventListener('load', () => {
     const doc = frame.contentDocument
     const rec = active()
@@ -208,9 +215,11 @@ export function mountUI(opts: Options) {
     for (const [i, top] of Object.entries(rec.scroll.containers)) {
       doc.querySelector(`[data-yoyo-scroll="${i}"]`)?.scrollTo({ top, behavior: 'instant' })
     }
-    const src = stage.dataset.mode === 'split' ? live.contentWindow : window
+    const src = shown() === 'split' ? live.contentWindow : window
     mirror(src, frame.contentWindow)
-    frame.contentWindow?.addEventListener('scroll', () => stage.dataset.mode === 'split' && mirror(frame.contentWindow, live.contentWindow), { passive: true })
+    const win = frame.contentWindow!
+    // outside split nobody consumes the echo flag, so clear it here or split's first scroll is swallowed
+    win.addEventListener('scroll', () => (shown() === 'split' ? mirror(win, live.contentWindow) : echoes.delete(win)), { passive: true })
   })
   live.addEventListener('load', () => {
     mirror(window, live.contentWindow) // open split where the page already is
@@ -221,7 +230,6 @@ export function mountUI(opts: Options) {
     freeze,
     peek: () => {
       if (!needSnapshot()) return
-      mirror(window, frame.contentWindow)
       peeking = true
       paint()
     },
@@ -241,6 +249,7 @@ export function mountUI(opts: Options) {
     next: () => step(1),
   }
 
+  const combos = (Object.keys(keys) as Action[]).map((a) => [a, parse(keys[a])] as const)
   const peekCombo = parse(keys.peek)
   function stopPeek() {
     if (!peeking) return
@@ -252,7 +261,7 @@ export function mountUI(opts: Options) {
     'keydown',
     (e) => {
       if (isEditable(e)) return
-      const action = (Object.keys(keys) as Action[]).find((a) => matches(e, parse(keys[a])))
+      const action = combos.find(([, c]) => matches(e, c))?.[0]
       if (!action) return
       e.preventDefault()
       e.stopPropagation()

@@ -4,12 +4,12 @@ const LABELS_KEY = 'yoyo:labels'
 let dbp: Promise<IDBDatabase> | undefined
 
 function db() {
-  return (dbp ??= new Promise((resolve, reject) => {
+  if (!dbp) {
     const req = indexedDB.open('yoyo', 1)
     req.onupgradeneeded = () => req.result.createObjectStore('snaps', { keyPath: 'id' }).createIndex('route', 'route')
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  }))
+    dbp = done(req)
+  }
+  return dbp
 }
 
 function done<T>(req: IDBRequest<T>) {
