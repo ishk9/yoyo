@@ -19,12 +19,12 @@ Dev only. Nothing ships to production.
 ## Install
 
 ```sh
-npm i -D @ishk9/yoyo
+npm i -D @ishk9/yoyo --include=dev
 # or
 pnpm add -D @ishk9/yoyo
 ```
 
-> If `NODE_ENV=production` is set in your shell, npm skips dev dependencies. Install with `npm i -D @ishk9/yoyo --include=dev`, or unset it first. See [Troubleshooting](#toolbar-not-showing-check-node_env).
+> **Keep `--include=dev`.** If your shell has `NODE_ENV=production` set, a plain `npm i -D …` installs in production mode and **removes every other dev dependency** in your project (Tailwind, TypeScript, ESLint…). The flag makes npm keep them no matter what `NODE_ENV` says. Already hit this? Run `npm install --include=dev` to put them back. To make it the default for a project, add `include=dev` to its `.npmrc`. See [Troubleshooting](#toolbar-not-showing-check-node_env).
 
 Then load it in development only.
 
@@ -139,7 +139,7 @@ Also exported: `capture()`, which returns the snapshot record for the current pa
 
 The most common cause. If your shell exports `NODE_ENV=production` (some dotfiles and Docker images do):
 
-- `npm install` silently **skips dev dependencies**, so yoyo isn't installed. Use `npm i --include=dev` or unset the variable.
+- `npm install` runs in production mode: it skips dev dependencies, and `npm i -D <pkg>` **removes the ones you already have**. Use `npm install --include=dev` to restore them, or put `include=dev` in the project's `.npmrc`.
 - `process.env.NODE_ENV === 'development'` is false, so the import never runs, even under `next dev`.
 - Next's webpack dev server can also fail on CSS with `Module parse failed: Unexpected character '@'`.
 
