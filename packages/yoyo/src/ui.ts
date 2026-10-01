@@ -1,23 +1,26 @@
 import { capture, type SnapshotRecord } from './snapshot'
 import * as store from './store'
 
-type Action = 'freeze' | 'peek' | 'compare' | 'mode' | 'prev' | 'next'
+export type Action = 'freeze' | 'compare' | 'mode' | 'prev' | 'next'
 type Mode = 'slider' | 'onion' | 'difference' | 'split'
-type Shown = Mode | 'off' | 'peek'
+type Shown = Mode | 'off'
 
 export interface Options {
-  /** `e.code` combos, e.g. `{ freeze: 'Alt+Shift+KeyF' }`. Modifiers: Alt, Shift, Ctrl, Meta. */
+  /**
+   * Override shortcuts. Values are `KeyboardEvent.code` combos joined with `+`,
+   * e.g. `{ freeze: 'Alt+KeyF' }`. Modifiers: Alt (⌥), Shift, Ctrl, Meta (⌘).
+   */
   keys?: Partial<Record<Action, string>>
+  /** Snapshots kept per route; the oldest is dropped past this. Default 10. */
   maxPerRoute?: number
 }
 
 const KEYS: Record<Action, string> = {
-  freeze: 'Alt+Shift+KeyS',
-  peek: 'Alt+Shift+KeyZ',
-  compare: 'Alt+Shift+KeyD',
-  mode: 'Alt+Shift+KeyM',
-  prev: 'Alt+Shift+BracketLeft',
-  next: 'Alt+Shift+BracketRight',
+  freeze: 'Alt+KeyS',
+  compare: 'Alt+KeyC',
+  mode: 'Alt+KeyM',
+  prev: 'Alt+BracketLeft',
+  next: 'Alt+BracketRight',
 }
 const MODES: Mode[] = ['slider', 'onion', 'difference', 'split']
 const PREFS_KEY = 'yoyo:ui'
@@ -36,9 +39,9 @@ const CSS = `
 [data-mode=slider] .seam { display: block; position: fixed; top: 0; bottom: 0; left: var(--v); width: 9px; margin-left: -4px;
   cursor: ew-resize; z-index: 2147483647; background: linear-gradient(90deg, transparent 4px, #f0f 4px 5px, transparent 5px); }
 [data-mode=slider] .amount, [data-mode=onion] .amount { display: inline-block; }
-.bar { position: fixed; right: 16px; bottom: 16px; z-index: 2147483647; display: flex; gap: 4px; align-items: center;
-  padding: 4px 6px; border-radius: 8px; background: #111; color: #eee; font: 12px/1.2 system-ui, sans-serif;
-  box-shadow: 0 2px 12px rgba(0,0,0,.4); user-select: none; }
+.bar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 2147483647; display: flex; gap: 4px;
+  align-items: center; padding: 4px 6px; border-radius: 8px; background: #111; color: #eee; font: 12px/1.2 system-ui, sans-serif;
+  box-shadow: 0 2px 12px rgba(0,0,0,.4); user-select: none; white-space: nowrap; }
 .bar.min .rest { display: none; }
 .rest { display: flex; gap: 4px; align-items: center; }
 button, select { all: unset; padding: 2px 6px; border-radius: 4px; cursor: pointer; background: #2a2a2a; }
@@ -48,8 +51,11 @@ button:focus-visible, select:focus-visible { outline: 2px solid #f0f; }
 .chip.on { background: #f0f; color: #000; }
 .chip i { font-style: normal; margin-left: 4px; opacity: .6; }
 .amount { width: 80px; accent-color: #f0f; }
-.toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 2147483647; padding: 6px 12px;
-  border-radius: 6px; background: #111; color: #eee; font: 13px system-ui, sans-serif; pointer-events: none; }
+.label, .toast { position: fixed; left: 50%; transform: translateX(-50%); z-index: 2147483647; padding: 6px 12px;
+  border-radius: 6px; background: #111; color: #eee; font: 13px system-ui, sans-serif; pointer-events: none; white-space: nowrap; }
+.label { top: 12px; border: 1px solid #f0f; }
+.label.same { border-color: #fa0; }
+.toast { top: 52px; }
 `
 
 const HTML = `
@@ -57,20 +63,29 @@ const HTML = `
   <iframe class="frozen" title="yoyo frozen snapshot" tabindex="-1" sandbox="allow-same-origin"></iframe>
   <iframe class="live" title="yoyo live page"></iframe>
   <div class="seam"></div>
+  <div class="label" role="status" hidden></div>
   <div class="bar">
-    <span class="grip" title="Drag">⠿</span>
+    <span class="grip" title="Drag to move">⠿</span>
     <span class="rest">
-      <button class="freeze" title="Freeze snapshot">● Freeze</button>
+      <button class="freeze">● Freeze</button>
       <span class="chips"></span>
       <select class="mode" title="Compare mode">
-        <option value="off">off</option>${MODES.map((m) => `<option>${m}</option>`).join('')}
+        <option value="off">compare: off</option>${MODES.map((m) => `<option value="${m}">${m}</option>`).join('')}
       </select>
-      <input class="amount" type="range" min="0" max="100" aria-label="Slider / opacity">
+      <input class="amount" type="range" min="0" max="100" aria-label="Slider position / opacity">
     </span>
-    <button class="min" title="Hide">–</button>
+    <button class="min" title="Collapse">–</button>
   </div>
-  <div class="toast" hidden></div>
+  <div class="toast" role="status" hidden></div>
 </div>`
+
+interface Prefs {
+  mode: Mode
+  // comparing + active snapshot per route are persisted: webpack full-reloads on CSS Module edits
+  comparing: boolean
+  active: Record<string, string>
+  bar?: { x: number; y: number }
+}
 
 export function mountUI(opts: Options) {
   const keys = { ...KEYS, ...opts.keys }
@@ -87,50 +102,90 @@ export function mountUI(opts: Options) {
   const chips = $('.chips')
   const modeSelect = $<HTMLSelectElement>('.mode')
   const amount = $<HTMLInputElement>('.amount')
+  const labelEl = $('.label')
   const toastEl = $('.toast')
+  $('.freeze').title = `Freeze snapshot (${pretty(keys.freeze)})`
+  modeSelect.title = `Compare mode (${pretty(keys.compare)} on/off, ${pretty(keys.mode)} next mode)`
 
-  const prefs: { mode: Mode; v: number; comparing: boolean; active: Record<string, string> } = {
-    mode: 'slider',
-    v: 50,
-    // comparing + active snapshot per route are persisted: webpack full-reloads on CSS Module edits
-    comparing: false,
-    active: {},
-    ...JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'),
-  }
+  const prefs: Prefs = { mode: 'slider', comparing: false, active: {}, ...JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') }
   let route = location.pathname
   let snaps: SnapshotRecord[] = [] // newest first
   let activeId: string | undefined
   let loaded: string | undefined
-  let peeking = false
+  let v = 50 // slider position / onion opacity; back to the middle whenever compare turns on or the mode changes
+  let same = false // active snapshot is identical to the live page
   let toastTimer: ReturnType<typeof setTimeout>
+  let sameTimer: ReturnType<typeof setTimeout>
   let savedPrefs = ''
 
   const active = () => snaps.find((s) => s.id === activeId)
   const oldestFirst = () => [...snaps].reverse()
+  const shown = () => stage.dataset.mode as Shown
+  const isOverlay = () => shown() !== 'off' && shown() !== 'split'
 
   function toast(msg: string) {
     toastEl.textContent = msg
     toastEl.hidden = false
     clearTimeout(toastTimer)
-    toastTimer = setTimeout(() => (toastEl.hidden = true), 1200)
+    toastTimer = setTimeout(() => (toastEl.hidden = true), 1500)
   }
 
-  const shown = () => stage.dataset.mode as Shown
-  const isOverlay = () => shown() !== 'off' && shown() !== 'split'
+  function save() {
+    const json = JSON.stringify(prefs)
+    if (json !== savedPrefs) localStorage.setItem(PREFS_KEY, (savedPrefs = json))
+  }
+
+  function label() {
+    const rec = active()
+    const mode = shown()
+    labelEl.hidden = mode === 'off' || !rec
+    if (labelEl.hidden) return
+    const name = `${rec!.label} (frozen)`
+    labelEl.classList.toggle('same', same)
+    labelEl.textContent = same
+      ? `${rec!.label} matches the live page. Make a change, or pick an older snapshot (${pretty(keys.prev)}).`
+      : {
+          slider: `◀ live  |  ${name} ▶`,
+          onion: `${name} over live`,
+          difference: `${name} vs live: changes light up`,
+          split: `◀ ${name}  |  live ▶`,
+        }[mode as Mode]
+  }
+
+  // ponytail: re-captures the page to compare HTML; only runs while compare is on, debounced. Cheaper diff if it ever shows up in a profile.
+  function checkSame() {
+    clearTimeout(sameTimer)
+    sameTimer = setTimeout(() => {
+      const rec = active()
+      const next = !!rec && shown() !== 'off' && capture().html === rec.html
+      if (next === same) return
+      same = next
+      label()
+    }, 300)
+  }
 
   function paint() {
-    const comparing: Shown = prefs.comparing && active() ? prefs.mode : 'off'
-    stage.dataset.mode = peeking ? 'peek' : comparing
-    stage.style.setProperty('--v', `${prefs.v}%`)
-    stage.style.setProperty('--o', String(prefs.v / 100))
-    modeSelect.value = comparing
-    amount.value = String(prefs.v)
-    if (shown() === 'split' && live.dataset.route !== location.href) {
+    const mode: Shown = prefs.comparing && active() ? prefs.mode : 'off'
+    stage.dataset.mode = mode
+    stage.style.setProperty('--v', `${v}%`)
+    stage.style.setProperty('--o', String(v / 100))
+    modeSelect.value = mode
+    amount.value = String(v)
+    if (mode === 'split' && live.dataset.route !== location.href) {
       live.dataset.route = live.src = location.href
     }
     if (isOverlay()) mirror(window, frame.contentWindow)
-    const saved = JSON.stringify(prefs)
-    if (saved !== savedPrefs) localStorage.setItem(PREFS_KEY, (savedPrefs = saved))
+    label()
+    if (mode !== 'off') checkSame()
+    save()
+  }
+
+  function setCompare(on: boolean, mode = prefs.mode) {
+    if (on && !needSnapshot()) return paint()
+    if (on && (!prefs.comparing || mode !== prefs.mode)) v = 50
+    prefs.comparing = on
+    prefs.mode = mode
+    paint()
   }
 
   function render() {
@@ -138,7 +193,7 @@ export function mountUI(opts: Options) {
       ...oldestFirst().map((s) => {
         const chip = document.createElement('button')
         chip.className = s.id === activeId ? 'chip on' : 'chip'
-        chip.title = 'Click: select · Double-click: rename'
+        chip.title = 'Click: compare against this · Double-click: rename'
         chip.textContent = s.label
         const del = document.createElement('i')
         del.textContent = '×'
@@ -153,9 +208,9 @@ export function mountUI(opts: Options) {
           render()
         }
         chip.ondblclick = async () => {
-          const label = prompt('Rename snapshot', s.label)?.trim()
-          if (!label) return
-          await store.rename(s.id, label)
+          const name = prompt('Rename snapshot', s.label)?.trim()
+          if (!name) return
+          await store.rename(s.id, name)
           refresh()
         }
         return chip
@@ -167,8 +222,8 @@ export function mountUI(opts: Options) {
     if (rec?.id !== loaded) {
       loaded = rec?.id
       frame.srcdoc = rec?.html ?? ''
+      same = false
     }
-    if (!rec) peeking = false
     paint()
   }
 
@@ -185,12 +240,12 @@ export function mountUI(opts: Options) {
     const rec = await store.save(capture(), opts.maxPerRoute)
     prefs.active[rec.route] = rec.id
     await refresh()
-    toast(`Frozen ${rec.label}`)
+    toast(`Frozen ${rec.label}. Make your change, then ${pretty(keys.compare)} to compare.`)
   }
 
   function needSnapshot() {
     if (active()) return true
-    toast(`No snapshot yet: ${keys.freeze}`)
+    toast(`No snapshot yet: press ${pretty(keys.freeze)} first`)
     return false
   }
 
@@ -200,7 +255,7 @@ export function mountUI(opts: Options) {
     const i = ordered.findIndex((s) => s.id === activeId)
     activeId = ordered[(i + dir + ordered.length) % ordered.length].id
     render()
-    toast(active()!.label)
+    if (shown() === 'off') toast(`Selected ${active()!.label}`)
   }
 
   // Scroll sync. Overlay modes: page → frozen. Split: frozen ↔ live iframe, skipping the echo we cause.
@@ -233,34 +288,15 @@ export function mountUI(opts: Options) {
 
   const actions: Record<Action, () => unknown> = {
     freeze,
-    peek: () => {
-      if (!needSnapshot()) return
-      peeking = true
-      paint()
-    },
-    compare: () => {
-      if (!prefs.comparing && !needSnapshot()) return
-      prefs.comparing = !prefs.comparing
-      paint()
-    },
+    compare: () => setCompare(!prefs.comparing),
     mode: () => {
-      if (!needSnapshot()) return
-      if (prefs.comparing) prefs.mode = MODES[(MODES.indexOf(prefs.mode) + 1) % MODES.length]
-      prefs.comparing = true
-      paint()
-      toast(prefs.mode)
+      setCompare(true, prefs.comparing ? MODES[(MODES.indexOf(prefs.mode) + 1) % MODES.length] : prefs.mode)
+      if (prefs.comparing) toast(prefs.mode)
     },
     prev: () => step(-1),
     next: () => step(1),
   }
-
   const combos = (Object.keys(keys) as Action[]).map((a) => [a, parse(keys[a])] as const)
-  const peekCombo = parse(keys.peek)
-  function stopPeek() {
-    if (!peeking) return
-    peeking = false
-    paint()
-  }
 
   addEventListener(
     'keydown',
@@ -268,55 +304,71 @@ export function mountUI(opts: Options) {
       if (isEditable(e)) return
       const action = combos.find(([, c]) => matches(e, c))?.[0]
       if (!action) return
-      e.preventDefault()
+      e.preventDefault() // also stops macOS Option+letter from typing a symbol
       e.stopPropagation()
       if (!e.repeat) actions[action]()
     },
     true,
   )
-  addEventListener(
-    'keyup',
-    (e) => {
-      if (peeking && (e.code === peekCombo.code || !modsHeld(e, peekCombo.mods))) stopPeek()
-    },
-    true,
-  )
-  addEventListener('blur', stopPeek) // Cmd+Tab mid-peek never delivers keyup
 
   $('.freeze').onclick = freeze
   $('.min').onclick = () => bar.classList.toggle('min')
   modeSelect.onchange = () => {
-    if (modeSelect.value === 'off') prefs.comparing = false
-    else if (needSnapshot()) {
-      prefs.mode = modeSelect.value as Mode
-      prefs.comparing = true
-    }
-    paint()
+    if (modeSelect.value === 'off') setCompare(false)
+    else setCompare(true, modeSelect.value as Mode)
   }
   amount.oninput = () => {
-    prefs.v = Number(amount.value)
+    v = Number(amount.value)
     paint()
   }
   drag($('.seam'), (x) => {
-    prefs.v = Math.round(Math.min(100, Math.max(0, (x / innerWidth) * 100)))
+    v = Math.round(Math.min(100, Math.max(0, (x / innerWidth) * 100)))
     paint()
   })
-  const grip = $('.grip')
-  drag(grip, (x, y) => {
-    bar.style.left = `${Math.max(0, x - grip.offsetLeft - 6)}px`
-    bar.style.top = `${Math.max(0, y - 12)}px`
-    bar.style.right = bar.style.bottom = 'auto'
-  })
 
-  // Re-attach if the app wipes body children; also our cue for client-side route changes.
+  // Toolbar sits bottom-center by default (bottom-right is where chat widgets live); a drag is remembered.
+  function placeBar(x: number, y: number) {
+    const left = Math.min(Math.max(0, x), innerWidth - 48)
+    const top = Math.min(Math.max(0, y), innerHeight - 32)
+    Object.assign(bar.style, { left: `${left}px`, top: `${top}px`, bottom: 'auto', transform: 'none' })
+    return { x: left, y: top }
+  }
+  const grip = $('.grip')
+  drag(
+    grip,
+    (x, y) => placeBar(x - grip.offsetLeft - 6, y - 12),
+    () => {
+      const r = bar.getBoundingClientRect()
+      prefs.bar = { x: r.left, y: r.top }
+      save()
+    },
+  )
+
+  // Re-attach if the app wipes body children; also our cue for client-side route changes and HMR edits.
   document.body.append(host)
+  if (prefs.bar) placeBar(prefs.bar.x, prefs.bar.y)
   new MutationObserver(() => {
     if (!host.isConnected) document.body.append(host)
     if (location.pathname !== route) refresh()
+    else if (shown() !== 'off') checkSame()
   }).observe(document.documentElement, { childList: true, subtree: true })
   addEventListener('popstate', () => location.pathname !== route && refresh())
+  // a swapped stylesheet <link> (CSS HMR) changes no child nodes; its load event is the signal
+  document.addEventListener('load', () => shown() !== 'off' && checkSame(), true)
 
   refresh()
+}
+
+const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)
+const SYMBOLS: Record<string, string> = IS_MAC
+  ? { Alt: '⌥', Shift: '⇧', Ctrl: '⌃', Meta: '⌘' }
+  : { Alt: 'Alt+', Shift: 'Shift+', Ctrl: 'Ctrl+', Meta: 'Win+' }
+
+/** 'Alt+BracketLeft' → '⌥[' on macOS, 'Alt+[' elsewhere. */
+function pretty(combo: string) {
+  const { code, mods } = parse(combo)
+  const key = code.replace(/^Key|^Digit/, '').replace('BracketLeft', '[').replace('BracketRight', ']')
+  return mods.map((m) => SYMBOLS[m] ?? `${m}+`).join('') + key
 }
 
 function parse(combo: string) {
@@ -333,17 +385,26 @@ function matches(e: KeyboardEvent, combo: { code: string; mods: string[] }) {
   return e.code === combo.code && modsHeld(e, combo.mods)
 }
 
+/** Only text entry blocks shortcuts; a focused checkbox, select or our own slider shouldn't. */
 function isEditable(e: Event) {
   const t = e.composedPath()[0]
-  return t instanceof HTMLElement && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))
+  if (t instanceof HTMLInputElement) return !/^(range|checkbox|radio|button|submit|reset|color|file|image)$/.test(t.type)
+  return t instanceof HTMLElement && (t.isContentEditable || t.tagName === 'TEXTAREA')
 }
 
-function drag(el: HTMLElement, move: (x: number, y: number) => void) {
+function drag(el: HTMLElement, move: (x: number, y: number) => void, end?: () => void) {
   el.addEventListener('pointerdown', (e) => {
     e.preventDefault()
     el.setPointerCapture(e.pointerId)
     const onMove = (ev: PointerEvent) => move(ev.clientX, ev.clientY)
     el.addEventListener('pointermove', onMove)
-    el.addEventListener('lostpointercapture', () => el.removeEventListener('pointermove', onMove), { once: true })
+    el.addEventListener(
+      'lostpointercapture',
+      () => {
+        el.removeEventListener('pointermove', onMove)
+        end?.()
+      },
+      { once: true },
+    )
   })
 }

@@ -1,6 +1,6 @@
 {
   "name": "@ishk9/yoyo",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Freeze the page you're working on, keep editing, flip back to compare.",
   "license": "MIT",
   "repository": {
@@ -23,13 +23,14 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "CHANGELOG.md"
   ],
   "sideEffects": true,
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
-    "prepublishOnly": "cp ../../README.md ../../LICENSE . && pnpm build && pnpm test"
+    "prepublishOnly": "cp ../../README.md ../../LICENSE ../../CHANGELOG.md . && pnpm build && pnpm test"
   },
   "devDependencies": {
     "jsdom": "^30",
