@@ -9,14 +9,14 @@ Dev only. Nothing ships to production.
 ## Install
 
 ```sh
-pnpm add -D yoyo
+pnpm add -D @ishk9/yoyo
 ```
 
 ### Next.js (15.3+)
 
 ```ts
 // instrumentation-client.ts
-if (process.env.NODE_ENV === 'development') import('yoyo')
+if (process.env.NODE_ENV === 'development') import('@ishk9/yoyo')
 ```
 
 The condition is constant-folded in production builds, so the chunk is dropped.
@@ -24,13 +24,13 @@ The condition is constant-folded in production builds, so the chunk is dropped.
 ### Vite / Astro / anything with ESM
 
 ```ts
-if (import.meta.env.DEV) import('yoyo')
+if (import.meta.env.DEV) import('@ishk9/yoyo')
 ```
 
 ### Plain HTML
 
 ```html
-<script type="module" src="/node_modules/yoyo/dist/index.js"></script>
+<script type="module" src="/node_modules/@ishk9/yoyo/dist/index.js"></script>
 ```
 
 Point `src` at wherever your dev server serves `dist/index.js`, and only add the tag in development.
@@ -59,7 +59,7 @@ Snapshots are kept per route in IndexedDB (10 per route, oldest dropped) and sur
 ## Options
 
 ```ts
-import('yoyo').then(({ init }) =>
+import('@ishk9/yoyo').then(({ init }) =>
   init({
     keys: { freeze: 'Alt+Shift+KeyF' }, // KeyboardEvent.code; modifiers Alt, Shift, Ctrl, Meta
     maxPerRoute: 20,
@@ -90,3 +90,7 @@ pnpm dev:example           # build yoyo, run examples/next-app
 pnpm e2e                   # Playwright against next dev (Turbopack) + prod build check
 BUNDLER=webpack pnpm e2e   # same against next dev --webpack
 ```
+
+## License
+
+MIT

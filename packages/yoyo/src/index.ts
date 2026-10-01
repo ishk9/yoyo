@@ -17,5 +17,5 @@ export function init(opts: Options = {}) {
   mountUI(opts)
 }
 
-// Deferred one task so `import('yoyo').then(m => m.init({...}))` wins over the default.
+// Deferred one task so `import('@ishk9/yoyo').then(m => m.init({...}))` wins over the default.
 if (typeof window !== 'undefined') setTimeout(() => init())

@@ -5,3 +5,5 @@ next-env.d.ts
 test-results
 playwright-report
 .next-prod-check
+packages/yoyo/README.md
+packages/yoyo/LICENSE
