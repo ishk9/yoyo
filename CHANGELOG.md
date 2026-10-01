@@ -23,6 +23,7 @@ Simpler compare flow, based on first real-world use.
 
 ### Docs
 
+- Install command now includes `--include=dev`, with a warning that a plain `npm i -D` under `NODE_ENV=production` removes your other dev dependencies.
 - Rewritten README: quick start, macOS and Windows shortcut table, modes, toolbar, options, and a troubleshooting section that leads with `NODE_ENV=production`.
 
 ## 0.1.0
