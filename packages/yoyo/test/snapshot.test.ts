@@ -134,6 +134,17 @@ describe('capture', () => {
     expect(capture().html).not.toContain('autofocus')
   })
 
+  it('shows below-the-fold content still waiting for a scroll-reveal', () => {
+    document.body.innerHTML = `
+      <nav id="menu" style="opacity: 0; transform: translateX(100%)">menu</nav>
+      <div id="grid" style="opacity: 0; transform: translateY(40px); color: red">cards</div>`
+    const below = document.getElementById('grid')!
+    vi.spyOn(below, 'getBoundingClientRect').mockReturnValue({ top: innerHeight + 200 } as DOMRect)
+    const { html } = capture()
+    expect(html).toContain('<div id="grid" style="color: red;">cards</div>')
+    expect(html).toContain('<nav id="menu" style="opacity: 0; transform: translateX(100%)">') // above the fold: real hidden UI, untouched
+  })
+
   it('preserves the dark class on <html>', () => {
     document.documentElement.className = 'dark'
     expect(capture().html).toMatch(/^<!DOCTYPE html><html class="dark">/)
