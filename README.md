@@ -2,26 +2,45 @@
 
 Freeze the page you're working on, keep editing, flip back to compare.
 
-Press a shortcut and the current route is saved as a DOM + CSS snapshot. Keep coding; HMR updates the live page while the snapshot stays put. Hold a key to peek at the old version, or lay the two over each other with a slider, onion skin, difference blend or side-by-side split. No undo, no second dev server.
+Press **⌥S** and the current page is saved as a snapshot. Keep coding; hot reload updates the live page while the snapshot stays exactly as it was. Press **⌥C** to compare the two with a slider, onion skin, difference blend or side-by-side split. No undo, no screenshots, no second dev server.
 
 Dev only. Nothing ships to production.
+
+- [Install](#install)
+- [Quick start](#quick-start)
+- [Shortcuts](#shortcuts)
+- [Compare modes](#compare-modes)
+- [Toolbar](#toolbar)
+- [Options](#options)
+- [Troubleshooting](#troubleshooting)
+- [How it works](#how-it-works)
+- [Limits](#limits)
 
 ## Install
 
 ```sh
+npm i -D @ishk9/yoyo
+# or
 pnpm add -D @ishk9/yoyo
 ```
 
+> If `NODE_ENV=production` is set in your shell, npm skips dev dependencies. Install with `npm i -D @ishk9/yoyo --include=dev`, or unset it first. See [Troubleshooting](#toolbar-not-showing-check-node_env).
+
+Then load it in development only.
+
 ### Next.js (15.3+)
 
+Create `instrumentation-client.ts` in the project root (or in `src/` if you use one):
+
 ```ts
-// instrumentation-client.ts
 if (process.env.NODE_ENV === 'development') import('@ishk9/yoyo')
 ```
 
-The condition is constant-folded in production builds, so the chunk is dropped.
+No config change needed. In production builds the condition is constant-folded and yoyo is dropped from the bundle entirely.
 
-### Vite / Astro / anything with ESM
+### Vite (React, Vue, Svelte, Solid…), Astro, anything ESM
+
+At the top of your client entry (e.g. `src/main.ts`):
 
 ```ts
 if (import.meta.env.DEV) import('@ishk9/yoyo')
@@ -35,59 +54,131 @@ if (import.meta.env.DEV) import('@ishk9/yoyo')
 
 Point `src` at wherever your dev server serves `dist/index.js`, and only add the tag in development.
 
-## Use
+## Quick start
 
-| Keys | Action |
-|---|---|
-| `Alt+Shift+S` | Freeze → new snapshot (A, B, C…) |
-| `Alt+Shift+Z` (hold) | Peek at the frozen version; release for live |
-| `Alt+Shift+D` | Compare on/off |
-| `Alt+Shift+M` | Next compare mode |
-| `Alt+Shift+[` / `]` | Previous / next snapshot |
+1. Run your dev server and open a page. A small toolbar appears at the bottom-center.
+2. Press **⌥S** (Alt+S). A toast says `Frozen A`.
+3. Change some CSS or markup and save. The page hot-reloads.
+4. Press **⌥C**. A slider splits the screen at 50%: live on the left, snapshot A on the right. A label at the top tells you what you're looking at.
+5. Drag the slider, or press **⌥M** to switch mode. Press **⌥C** again to turn compare off.
 
-Shortcuts are ignored while you're typing in an input. The toolbar (bottom right, draggable) has the same actions: click a chip to select it, double-click to rename, `×` to delete.
+Compare always uses the selected snapshot (highlighted chip), which is the last one you froze unless you pick another. If you freeze and compare straight away, the label says **"A matches the live page"**: there's nothing to compare yet, so make a change or pick an older snapshot with **⌥[**.
 
-Compare modes:
+Typical loop for trying variants: freeze → change → compare → like it? freeze again (B) → change → compare against B → ⌥[ to go back to A.
 
-- **slider**: live left of the seam, frozen right. Drag the seam or use the range input.
-- **onion**: frozen on top at adjustable opacity.
-- **difference**: identical pixels go black, so only changes light up.
-- **split**: frozen left, live right in an iframe that gets its own HMR. Scroll is linked.
+## Shortcuts
 
-Snapshots are kept per route in IndexedDB (10 per route, oldest dropped) and survive reloads.
+| macOS | Windows / Linux | Action |
+|---|---|---|
+| ⌥S | Alt+S | Freeze the page into a new snapshot (A, B, C…) |
+| ⌥C | Alt+C | Compare on / off (starts at slider 50%) |
+| ⌥M | Alt+M | Next compare mode: slider → onion → difference → split |
+| ⌥[ | Alt+[ | Previous snapshot |
+| ⌥] | Alt+] | Next snapshot |
+
+- Shortcuts are ignored while you're typing in a text field, textarea or contenteditable.
+- They match the physical key (`KeyboardEvent.code`), so they work on any keyboard layout, and ⌥ won't type `ß` or `ç` on macOS.
+- Taken by another app (Raycast, Arc, a window manager)? Use the toolbar, or [change them](#options).
+
+## Compare modes
+
+| Mode | What you see | Good for |
+|---|---|---|
+| **slider** | Live left of the seam, snapshot right. Drag the seam or the toolbar range. | Before/after of a layout or color |
+| **onion** | Snapshot laid over live at adjustable opacity (default 50%). | Alignment and spacing shifts |
+| **difference** | Identical pixels turn black; only changes light up. | Spotting what changed at all |
+| **split** | Snapshot left, live right, side by side. The live pane is a real copy of your app with its own hot reload; scrolling either pane scrolls both. | Comparing whole sections |
+
+The slider and opacity go back to the middle every time you turn compare on or change mode. Your chosen mode is remembered.
+
+In every mode the snapshot follows your scroll position, and inner scroll areas are restored to where they were when you froze.
+
+## Toolbar
+
+```
+⠿  ● Freeze  A× B× C×  [slider ▾]  ━━●━━  –
+```
+
+- **⠿** drag to move. The position is remembered across reloads. Default is bottom-center, away from chat widgets that usually sit bottom-right.
+- **● Freeze**: same as ⌥S.
+- **Chips**: one per snapshot on this route. Click to select, double-click to rename, **×** to delete.
+- **Mode select**: `compare: off` or a mode.
+- **Range**: slider position / onion opacity.
+- **–** collapses the toolbar to just the handle.
+
+Snapshots are kept **per route** in your browser's IndexedDB (10 per route, oldest dropped) and survive reloads and dev-server restarts. Nothing leaves your machine.
 
 ## Options
 
+A bare import uses the defaults. To configure, call `init` yourself:
+
 ```ts
-import('@ishk9/yoyo').then(({ init }) =>
-  init({
-    keys: { freeze: 'Alt+Shift+KeyF' }, // KeyboardEvent.code; modifiers Alt, Shift, Ctrl, Meta
-    maxPerRoute: 20,
-  }),
-)
+// Next.js: instrumentation-client.ts
+if (process.env.NODE_ENV === 'development') {
+  import('@ishk9/yoyo').then(({ init }) =>
+    init({
+      keys: { freeze: 'Alt+KeyF', compare: 'Alt+KeyX' },
+      maxPerRoute: 20,
+    }),
+  )
+}
 ```
 
-A bare import uses the defaults. Keys match `e.code`, so they work the same on every keyboard layout and Option doesn't turn letters into symbols on macOS.
+| Option | Type | Default | |
+|---|---|---|---|
+| `keys` | `Partial<Record<'freeze' \| 'compare' \| 'mode' \| 'prev' \| 'next', string>>` | see [Shortcuts](#shortcuts) | `KeyboardEvent.code` joined with `+`. Modifiers: `Alt` (⌥), `Shift`, `Ctrl`, `Meta` (⌘). Examples: `'Alt+KeyF'`, `'Ctrl+Shift+Digit1'`, `'Alt+BracketLeft'`. |
+| `maxPerRoute` | `number` | `10` | Snapshots kept per route. |
 
-## Limits
+`init` is safe to call more than once; only the first call counts.
 
-- Snapshots don't run JS. Hover and focus styles still work; an open dropdown stays as it was captured.
-- Content inside shadow roots (web components) isn't captured.
-- Cross-origin stylesheets (Google Fonts CSS, CDNs) are linked rather than copied, so a change on their side will show up in old snapshots.
+Also exported: `capture()`, which returns the snapshot record for the current page (`{ html, route, viewport, scroll, createdAt }`) if you want to build on it.
 
 ## Troubleshooting
 
-- **Nothing happens on the shortcut.** Another app (Raycast, Arc, a window manager) may own it. Use the toolbar's Freeze button or remap with `init({ keys })`.
-- **Webpack dev: `Module parse failed: Unexpected character '@'` in CSS.** Your shell exports `NODE_ENV=production`. Unset it for `next dev`.
-- **HMR stops after a client-side navigation** in some Next 16 versions (vercel/next.js#98699). That's Next, not yoyo; a reload fixes it.
+### Toolbar not showing? Check `NODE_ENV`
+
+The most common cause. If your shell exports `NODE_ENV=production` (some dotfiles and Docker images do):
+
+- `npm install` silently **skips dev dependencies**, so yoyo isn't installed. Use `npm i --include=dev` or unset the variable.
+- `process.env.NODE_ENV === 'development'` is false, so the import never runs, even under `next dev`.
+- Next's webpack dev server can also fail on CSS with `Module parse failed: Unexpected character '@'`.
+
+Check and fix:
+
+```sh
+echo $NODE_ENV        # should print nothing or "development"
+unset NODE_ENV        # this shell only; remove the export from ~/.zshrc / ~/.bashrc to fix for good
+npm run dev
+```
+
+### Other cases
+
+- **App runs inside an iframe** (VS Code Simple Browser, StackBlitz, CodeSandbox preview): yoyo doesn't start inside iframes, so it can't nest itself in split mode. Open the dev URL in a normal browser tab.
+- **Shortcut does nothing**: another app may own it, or focus is in a text field. Use the toolbar or remap with `keys`.
+- **Comparison looks identical**: read the label. If it says "matches the live page", the selected snapshot was taken after your change. Pick an older one with ⌥[ or click its chip.
+- **Toolbar is in the way**: drag it by ⠿, or collapse it with –.
+- **HMR stops after a client-side navigation** in some Next 16 versions (vercel/next.js#98699). That's Next; a reload fixes it.
+
+## How it works
+
+Freezing clones the DOM and serializes the live CSS from the browser's own stylesheet objects (including rules inserted by CSS-in-JS, constructed stylesheets and `@import`s), with relative URLs made absolute. Form values, canvas pixels, image sources and scroll positions are copied in. Scripts are removed.
+
+The snapshot is shown in a sandboxed, same-origin `<iframe srcdoc>` sized to your viewport, so later hot reloads can't touch it. The toolbar lives in a Shadow DOM root, so its styles never leak into your app or into snapshots.
+
+## Limits
+
+- Snapshots don't run JavaScript. Hover and focus styles still work; an open dropdown stays as it was captured.
+- Content inside shadow roots (web components) isn't captured.
+- Cross-origin stylesheets (Google Fonts CSS, CDNs) are linked rather than copied, so a change on their side would show up in old snapshots.
+- Very large pages (thousands of nodes) make bigger snapshots and a slower freeze.
 
 ## Develop
 
 ```sh
 pnpm install
-pnpm test                  # serializer unit tests (vitest + jsdom)
+pnpm test                  # unit tests (vitest + jsdom)
 pnpm dev:example           # build yoyo, run examples/next-app
-pnpm e2e                   # Playwright against next dev (Turbopack) + prod build check
+pnpm e2e                   # Playwright against next dev (Turbopack) + production build check
 BUNDLER=webpack pnpm e2e   # same against next dev --webpack
 ```
 

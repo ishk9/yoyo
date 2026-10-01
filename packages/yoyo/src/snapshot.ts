@@ -91,6 +91,8 @@ export function capture(doc: Document = document): Capture {
   }
 
   clone.querySelectorAll(STRIP).forEach((el) => el.remove())
+  // the sandboxed frame refuses autofocus and logs a console error for each one
+  clone.querySelectorAll('[autofocus]').forEach((el) => el.removeAttribute('autofocus'))
   // A stylesheet link not in styleSheets is still loading: the live page doesn't render it yet,
   // and keeping it would fetch whatever CSS is current when the snapshot is viewed.
   clone.querySelectorAll('link[rel~=stylesheet]').forEach((el) => keep.has(el) || el.remove())
