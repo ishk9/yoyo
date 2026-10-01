@@ -54,7 +54,7 @@ button:focus-visible, select:focus-visible { outline: 2px solid #f0f; }
 
 const HTML = `
 <div class="stage" data-mode="off">
-  <iframe class="frozen" title="yoyo frozen snapshot" tabindex="-1"></iframe>
+  <iframe class="frozen" title="yoyo frozen snapshot" tabindex="-1" sandbox="allow-same-origin"></iframe>
   <iframe class="live" title="yoyo live page"></iframe>
   <div class="seam"></div>
   <div class="bar">
@@ -89,10 +89,12 @@ export function mountUI(opts: Options) {
   const amount = $<HTMLInputElement>('.amount')
   const toastEl = $('.toast')
 
-  const prefs: { mode: Mode; v: number; comparing: boolean } = {
+  const prefs: { mode: Mode; v: number; comparing: boolean; active: Record<string, string> } = {
     mode: 'slider',
     v: 50,
-    comparing: false, // persisted: webpack full-reloads on CSS Module edits
+    // comparing + active snapshot per route are persisted: webpack full-reloads on CSS Module edits
+    comparing: false,
+    active: {},
     ...JSON.parse(localStorage.getItem(PREFS_KEY) || '{}'),
   }
   let route = location.pathname
@@ -160,6 +162,8 @@ export function mountUI(opts: Options) {
       }),
     )
     const rec = active()
+    if (rec) prefs.active[route] = rec.id
+    else delete prefs.active[route]
     if (rec?.id !== loaded) {
       loaded = rec?.id
       frame.srcdoc = rec?.html ?? ''
@@ -171,6 +175,7 @@ export function mountUI(opts: Options) {
   async function refresh() {
     route = location.pathname
     snaps = await store.list(route)
+    activeId = prefs.active[route]
     if (!active()) activeId = snaps[0]?.id
     render()
   }
@@ -178,7 +183,7 @@ export function mountUI(opts: Options) {
   async function freeze() {
     await document.fonts?.ready
     const rec = await store.save(capture(), opts.maxPerRoute)
-    activeId = rec.id
+    prefs.active[rec.route] = rec.id
     await refresh()
     toast(`Frozen ${rec.label}`)
   }
@@ -212,8 +217,8 @@ export function mountUI(opts: Options) {
     const doc = frame.contentDocument
     const rec = active()
     if (!doc || !rec) return
-    for (const [i, top] of Object.entries(rec.scroll.containers)) {
-      doc.querySelector(`[data-yoyo-scroll="${i}"]`)?.scrollTo({ top, behavior: 'instant' })
+    for (const [i, [top, left]] of Object.entries(rec.scroll.containers)) {
+      doc.querySelector(`[data-yoyo-scroll="${i}"]`)?.scrollTo({ top, left, behavior: 'instant' })
     }
     const src = shown() === 'split' ? live.contentWindow : window
     mirror(src, frame.contentWindow)

@@ -29,9 +29,10 @@ export async function list(route: string): Promise<SnapshotRecord[]> {
   return all.sort((a, b) => b.createdAt - a.createdAt)
 }
 
+// crypto.randomUUID needs a secure origin; dev servers are often opened over plain http on a LAN IP.
 /** Saves, labels A, B, C… (never reused per route), evicts oldest beyond max. */
 export async function save(cap: Capture, max = 10): Promise<SnapshotRecord> {
-  const rec: SnapshotRecord = { ...cap, id: crypto.randomUUID(), label: nextLabel(cap.route) }
+  const rec: SnapshotRecord = { ...cap, id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`, label: nextLabel(cap.route) }
   const store = await tx('readwrite')
   await done(store.put(rec))
   const all = await done(store.index('route').getAll(cap.route))

@@ -144,10 +144,11 @@ describe('capture', () => {
     document.body.innerHTML = '<img src="/a.png" srcset="/a2.png 2x" loading="lazy"><div id="s"></div>'
     const div = document.getElementById('s')!
     div.scrollTop = 120
+    div.scrollLeft = 30
     const { html, scroll } = capture()
     expect(html).toContain('<img src="http://localhost:3000/a.png">')
     const idx = html.match(/data-yoyo-scroll="(\d+)"/)![1]
-    expect(scroll.containers[idx]).toBe(120)
+    expect(scroll.containers[idx]).toEqual([120, 30])
   })
 
   it('adds a <base> so relative URLs resolve inside srcdoc', () => {

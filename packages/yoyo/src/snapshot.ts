@@ -3,7 +3,7 @@ export interface Capture {
   createdAt: number
   html: string
   viewport: { w: number; h: number }
-  scroll: { x: number; y: number; containers: Record<string, number> }
+  scroll: { x: number; y: number; containers: Record<string, [top: number, left: number]> }
 }
 
 export interface SnapshotRecord extends Capture {
@@ -22,7 +22,7 @@ export function capture(doc: Document = document): Capture {
   const src = [root, ...root.querySelectorAll('*')]
   const dst = [clone, ...clone.querySelectorAll('*')]
   const twin = new Map<Element, Element>()
-  const containers: Record<string, number> = {}
+  const containers: Capture['scroll']['containers'] = {}
 
   src.forEach((el, i) => {
     const c = dst[i]
@@ -58,7 +58,7 @@ export function capture(doc: Document = document): Capture {
     }
     if (el !== root && el !== doc.body && (el.scrollTop || el.scrollLeft)) {
       c.setAttribute('data-yoyo-scroll', String(i))
-      containers[i] = el.scrollTop
+      containers[i] = [el.scrollTop, el.scrollLeft]
     }
   })
 

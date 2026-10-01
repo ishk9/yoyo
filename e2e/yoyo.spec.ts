@@ -179,6 +179,15 @@ test.describe('store (R5)', () => {
     await expect(ui(page).locator('.chip.on')).toHaveText('B×')
   })
 
+  test('selected snapshot survives a reload', async ({ page }) => {
+    await open(page)
+    for (const l of 'AB') await freeze(page, l)
+    await ui(page).locator('.chip', { hasText: 'A' }).click()
+    await expect(ui(page).locator('.chip.on')).toHaveText('A×')
+    await open(page)
+    await expect(ui(page).locator('.chip.on')).toHaveText('A×')
+  })
+
   test('caps at 10 per route, evicting the oldest', async ({ page }) => {
     await open(page)
     for (const l of 'ABCDEFGHIJK') await freeze(page, l)
