@@ -7,3 +7,4 @@ playwright-report
 .next-prod-check
 packages/yoyo/README.md
 packages/yoyo/LICENSE
+packages/yoyo/CHANGELOG.md

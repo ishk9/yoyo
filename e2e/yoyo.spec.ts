@@ -37,7 +37,7 @@ async function open(p: Page, url = '/') {
 }
 
 async function freeze(p: Page, label: string) {
-  await p.keyboard.press('Alt+Shift+KeyS')
+  await p.keyboard.press('Alt+KeyS')
   await expect(ui(p).locator('.chip.on')).toHaveText(`${label}×`)
 }
 
@@ -99,11 +99,11 @@ test.afterEach(() => {
   expect(errors).toEqual([])
 })
 
-test.describe('freeze + peek (R1, R3)', () => {
+test.describe('freeze + compare (R1, R3)', () => {
   test('shortcut freezes into chip A and IndexedDB', async ({ page }) => {
     await open(page)
-    await page.keyboard.press('Alt+Shift+KeyS')
-    await expect(ui(page).locator('.toast')).toHaveText('Frozen A')
+    await page.keyboard.press('Alt+KeyS')
+    await expect(ui(page).locator('.toast')).toContainText('Frozen A')
     await expect(ui(page).locator('.chip')).toHaveText(['A×'])
     const count = await page.evaluate(
       () =>
@@ -121,38 +121,70 @@ test.describe('freeze + peek (R1, R3)', () => {
   test('ignored while typing in an input', async ({ page }) => {
     await open(page)
     await page.getByTestId('name').focus()
-    await page.keyboard.press('Alt+Shift+KeyS')
+    await page.keyboard.press('Alt+KeyS')
     await page.waitForTimeout(300)
     await expect(ui(page).locator('.chip')).toHaveCount(0)
   })
 
-  test('hold to peek shows the frozen render after HMR; release returns to live', async ({ page }) => {
+  test('one key toggles compare: slider at 50% with a label, frozen render survives HMR', async ({ page }) => {
     await open(page)
     await freeze(page, 'A')
     await editCss(page, '')
-    await page.keyboard.down('Alt')
-    await page.keyboard.down('Shift')
-    await page.keyboard.down('KeyZ')
-    expect(await mode(page)).toBe('peek')
+    await page.keyboard.press('Alt+KeyC')
+    expect(await mode(page)).toBe('slider')
+    await expect(ui(page).locator('.amount')).toHaveValue('50')
+    await expect(ui(page).locator('.label')).toHaveText('◀ live  |  A (frozen) ▶')
     await expect(frozen(page).getByTestId('heading')).toHaveCSS('color', BLUE)
-    await page.keyboard.up('KeyZ')
+    await page.keyboard.press('Alt+KeyC')
     expect(await mode(page)).toBe('off')
-    await page.keyboard.up('Shift')
-    await page.keyboard.up('Alt')
+    await expect(ui(page).locator('.label')).toBeHidden()
   })
 
-  test('window blur ends a peek', async ({ page }) => {
+  test('label says when the snapshot matches the live page, and updates after a change', async ({ page }) => {
     await open(page)
     await freeze(page, 'A')
-    await page.keyboard.down('Alt')
-    await page.keyboard.down('Shift')
-    await page.keyboard.down('KeyZ')
-    expect(await mode(page)).toBe('peek')
-    await page.evaluate(() => dispatchEvent(new Event('blur')))
-    expect(await mode(page)).toBe('off')
-    await page.keyboard.up('KeyZ')
-    await page.keyboard.up('Shift')
-    await page.keyboard.up('Alt')
+    await page.keyboard.press('Alt+KeyC')
+    await expect(ui(page).locator('.label')).toContainText('A matches the live page')
+    await editCss(page, '')
+    await expect(ui(page).locator('.label')).toHaveText('◀ live  |  A (frozen) ▶')
+  })
+
+  test('slider resets to the middle each time compare turns on', async ({ page }) => {
+    await open(page)
+    await freeze(page, 'A')
+    await setMode(page, 'slider', 10)
+    await page.keyboard.press('Alt+KeyC')
+    await page.keyboard.press('Alt+KeyC')
+    await expect(ui(page).locator('.amount')).toHaveValue('50')
+  })
+
+  test('frozen snapshot logs no console errors (autofocus is stripped)', async ({ page }) => {
+    const consoleErrors: string[] = []
+    page.on('console', (m) => m.type() === 'error' && consoleErrors.push(m.text()))
+    await open(page)
+    await page.evaluate(() => document.querySelector('main')!.insertAdjacentHTML('beforeend', '<button autofocus>Close</button>'))
+    await freeze(page, 'A')
+    await page.keyboard.press('Alt+KeyC')
+    await expect(frozen(page).getByText('Close')).toBeAttached()
+    await page.waitForTimeout(300)
+    expect(consoleErrors.filter((t) => /autofocus|sandbox/i.test(t))).toEqual([])
+  })
+
+  test('toolbar defaults to bottom-center and remembers where it was dragged', async ({ page }) => {
+    await open(page)
+    const bar = ui(page).locator('.bar')
+    const box = (await bar.boundingBox())!
+    expect(Math.abs(box.x + box.width / 2 - 500)).toBeLessThan(2)
+    const grip = (await ui(page).locator('.grip').boundingBox())!
+    await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(60, 300, { steps: 5 })
+    await page.mouse.up()
+    const moved = (await bar.boundingBox())!
+    await open(page)
+    const after = (await bar.boundingBox())!
+    expect(Math.round(after.x)).toBe(Math.round(moved.x))
+    expect(Math.round(after.y)).toBe(Math.round(moved.y))
   })
 
   test('client-side navigation keeps the toolbar and swaps chips per route', async ({ page }) => {
@@ -206,15 +238,15 @@ test.describe('store (R5)', () => {
   test('prev/next cycle the active snapshot', async ({ page }) => {
     await open(page)
     for (const l of 'AB') await freeze(page, l)
-    await page.keyboard.press('Alt+Shift+BracketLeft')
+    await page.keyboard.press('Alt+BracketLeft')
     await expect(ui(page).locator('.chip.on')).toHaveText('A×')
-    await page.keyboard.press('Alt+Shift+BracketRight')
+    await page.keyboard.press('Alt+BracketRight')
     await expect(ui(page).locator('.chip.on')).toHaveText('B×')
   })
 })
 
 test.describe('compare modes (R4)', () => {
-  const top = { x: 0, y: 0, width: 1000, height: 600 } // clear of the toolbar and Next dev badge
+  const top = { x: 0, y: 60, width: 1000, height: 540 } // clear of the label, toolbar and Next dev badge
 
   test('difference with no change is near-black', async ({ page }) => {
     await open(page)

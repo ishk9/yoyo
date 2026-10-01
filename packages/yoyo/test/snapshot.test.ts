@@ -129,6 +129,11 @@ describe('capture', () => {
     expect(html).toContain('<p>app</p>')
   })
 
+  it('strips autofocus so the sandboxed frame does not log errors', () => {
+    document.body.innerHTML = '<button autofocus>Close</button><input autofocus>'
+    expect(capture().html).not.toContain('autofocus')
+  })
+
   it('preserves the dark class on <html>', () => {
     document.documentElement.className = 'dark'
     expect(capture().html).toMatch(/^<!DOCTYPE html><html class="dark">/)
