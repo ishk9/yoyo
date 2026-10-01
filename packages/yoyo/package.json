@@ -1,0 +1,24 @@
+{
+  "name": "yoyo",
+  "version": "0.1.0",
+  "description": "Freeze the page you're working on, keep editing, flip back to compare.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "sideEffects": true,
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "jsdom": "^30",
+    "tsup": "^8",
+    "typescript": "^5",
+    "vitest": "^5"
+  }
+}

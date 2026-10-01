@@ -1,0 +1,15 @@
+{
+  "name": "yoyo-root",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.8.1",
+  "scripts": {
+    "build": "pnpm --filter yoyo build",
+    "test": "pnpm --filter yoyo test",
+    "dev:example": "pnpm --filter yoyo build && pnpm --filter next-app dev",
+    "e2e": "pnpm build && playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1"
+  }
+}
