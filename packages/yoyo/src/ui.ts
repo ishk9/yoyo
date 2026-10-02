@@ -2,7 +2,8 @@ import { capture, type SnapshotRecord } from './snapshot'
 import * as store from './store'
 
 export type Action = 'freeze' | 'compare' | 'mode' | 'prev' | 'next'
-type Mode = 'slider' | 'onion' | 'difference' | 'split'
+// Onion and difference are switched off for now; uncomment them here, in MODES, CSS and the label map to bring them back.
+type Mode = 'slider' | 'split' // | 'onion' | 'difference'
 type Shown = Mode | 'off'
 
 export interface Options {
@@ -22,7 +23,7 @@ const KEYS: Record<Action, string> = {
   prev: 'Alt+BracketLeft',
   next: 'Alt+BracketRight',
 }
-const MODES: Mode[] = ['slider', 'onion', 'difference', 'split']
+const MODES: Mode[] = ['slider', /* 'onion', 'difference', */ 'split']
 const PREFS_KEY = 'yoyo:ui'
 
 const CSS = `
@@ -32,13 +33,13 @@ const CSS = `
 .live, .seam, .amount { display: none; }
 .stage:not([data-mode=off]) .frozen { visibility: visible; }
 [data-mode=slider] .frozen { clip-path: inset(0 0 0 var(--v)); }
-[data-mode=onion] .frozen { opacity: var(--o); }
-[data-mode=difference] .frozen { mix-blend-mode: difference; }
+/* [data-mode=onion] .frozen { opacity: var(--o); } */
+/* [data-mode=difference] .frozen { mix-blend-mode: difference; } */
 [data-mode=split] .frozen { width: 50%; }
 [data-mode=split] .live { display: block; left: 50%; width: 50%; border-left: 2px solid #f0f; }
 [data-mode=slider] .seam { display: block; position: fixed; top: 0; bottom: 0; left: var(--v); width: 9px; margin-left: -4px;
   cursor: ew-resize; z-index: 2147483647; background: linear-gradient(90deg, transparent 4px, #f0f 4px 5px, transparent 5px); }
-[data-mode=slider] .amount, [data-mode=onion] .amount { display: inline-block; }
+[data-mode=slider] .amount /* , [data-mode=onion] .amount */ { display: inline-block; }
 .bar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 2147483647; display: flex; gap: 4px;
   align-items: center; padding: 4px 6px; border-radius: 8px; background: #111; color: #eee; font: 12px/1.2 system-ui, sans-serif;
   box-shadow: 0 2px 12px rgba(0,0,0,.4); user-select: none; white-space: nowrap; }
@@ -108,6 +109,7 @@ export function mountUI(opts: Options) {
   modeSelect.title = `Compare mode (${pretty(keys.compare)} on/off, ${pretty(keys.mode)} next mode)`
 
   const prefs: Prefs = { mode: 'slider', comparing: false, active: {}, ...JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') }
+  if (!MODES.includes(prefs.mode)) prefs.mode = 'slider' // saved by a version that had more modes
   let route = location.pathname
   let snaps: SnapshotRecord[] = [] // newest first
   let activeId: string | undefined
@@ -146,8 +148,8 @@ export function mountUI(opts: Options) {
       ? `${rec!.label} matches the live page. Make a change, or pick an older snapshot (${pretty(keys.prev)}).`
       : {
           slider: `◀ live  |  ${name} ▶`,
-          onion: `${name} over live`,
-          difference: `${name} vs live: changes light up`,
+          // onion: `${name} over live`,
+          // difference: `${name} vs live: changes light up`,
           split: `◀ ${name}  |  live ▶`,
         }[mode as Mode]
   }

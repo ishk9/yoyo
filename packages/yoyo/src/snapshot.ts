@@ -56,6 +56,7 @@ export function capture(doc: Document = document): Capture {
         } catch {} // tainted canvas: leave it blank
         break
     }
+    if (isWaitingToReveal(el, win)) for (const p of PRE_REVEAL) (c as HTMLElement).style.removeProperty(p)
     if (el !== root && el !== doc.body && (el.scrollTop || el.scrollLeft)) {
       c.setAttribute('data-yoyo-scroll', String(i))
       containers[i] = [el.scrollTop, el.scrollLeft]
@@ -107,6 +108,19 @@ export function capture(doc: Document = document): Capture {
     viewport: { w: win.innerWidth, h: win.innerHeight },
     scroll: { x: win.scrollX, y: win.scrollY, containers },
   }
+}
+
+// Scroll-reveal libraries (framer-motion whileInView, GSAP, IntersectionObserver hooks) park content below
+// the fold at an inline opacity 0 / offset until it's scrolled to. A snapshot runs no JS, so it would stay
+// hidden forever; drop those inline values so the snapshot shows the revealed state.
+const PRE_REVEAL = ['opacity', 'visibility', 'transform', 'translate', 'scale', 'rotate', 'filter']
+
+// ponytail: inline-styled only. Class-driven hiding (AOS, hover overlays) is left alone, since a CSS
+// opacity:0 below the fold is as likely to be a hover state as a pending reveal.
+function isWaitingToReveal(el: Element, win: Window) {
+  const style = (el as HTMLElement).style
+  if (!style || (style.opacity !== '0' && style.visibility !== 'hidden')) return false
+  return el.getBoundingClientRect().top >= win.innerHeight
 }
 
 /** Rules as text with url()s made absolute; null when the sheet is cross-origin. */

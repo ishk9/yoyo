@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0
+
+### Changed
+
+- Compare modes are down to **slider** and **split**. Onion and difference are commented out in the code and can come back later. ⌥M now switches between the two. A saved onion/difference preference falls back to slider.
+
+### Fixed
+
+- Snapshots taken at the top of a page with scroll-reveal animations (framer-motion `whileInView`, GSAP, IntersectionObserver hooks) were missing everything below the fold, because that content was still at an inline `opacity: 0`. The snapshot now shows it revealed.
+
+### Docs
+
+- Install command includes `--include=dev`, with a warning that a plain `npm i -D` under `NODE_ENV=production` removes your other dev dependencies.
+
 ## 0.2.0
 
 Simpler compare flow, based on first real-world use.

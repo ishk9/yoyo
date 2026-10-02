@@ -133,6 +133,7 @@ test.describe('freeze + compare (R1, R3)', () => {
     await page.keyboard.press('Alt+KeyC')
     expect(await mode(page)).toBe('slider')
     await expect(ui(page).locator('.amount')).toHaveValue('50')
+    await expect(ui(page).locator('select.mode option')).toHaveText(['compare: off', 'slider', 'split'])
     await expect(ui(page).locator('.label')).toHaveText('◀ live  |  A (frozen) ▶')
     await expect(frozen(page).getByTestId('heading')).toHaveCSS('color', BLUE)
     await page.keyboard.press('Alt+KeyC')
@@ -246,16 +247,17 @@ test.describe('store (R5)', () => {
 })
 
 test.describe('compare modes (R4)', () => {
+  // test.skip below: onion and difference are switched off for now (commented out in ui.ts)
   const top = { x: 0, y: 60, width: 1000, height: 540 } // clear of the label, toolbar and Next dev badge
 
-  test('difference with no change is near-black', async ({ page }) => {
+  test.skip('difference with no change is near-black', async ({ page }) => {
     await open(page)
     await freeze(page, 'A')
     await setMode(page, 'difference')
     await expect.poll(() => darkRatio(page, top)).toBeGreaterThan(0.99)
   })
 
-  test('difference lights up only what changed', async ({ page }) => {
+  test.skip('difference lights up only what changed', async ({ page }) => {
     await open(page)
     await freeze(page, 'A')
     await editCss(page, `background: ${RED};`)
@@ -276,7 +278,7 @@ test.describe('compare modes (R4)', () => {
     await expect.poll(async () => isRed(await pixel(page, 700, y))).toBe(false)
   })
 
-  test('onion at 0 is live, at 100 is frozen', async ({ page }) => {
+  test.skip('onion at 0 is live, at 100 is frozen', async ({ page }) => {
     await open(page)
     await freeze(page, 'A')
     await editCss(page, `background: ${RED};`)
@@ -291,7 +293,7 @@ test.describe('compare modes (R4)', () => {
   test('frozen frame follows page scroll', async ({ page }) => {
     await open(page)
     await freeze(page, 'A')
-    await setMode(page, 'onion', 50)
+    await setMode(page, 'slider')
     await page.mouse.wheel(0, 800)
     await expect.poll(() => page.evaluate(() => scrollY)).toBe(800)
     await expect.poll(() => frozenY(page)).toBeGreaterThanOrEqual(799)
@@ -302,13 +304,22 @@ test.describe('compare modes (R4)', () => {
     await open(page)
     await freeze(page, 'A')
     await editCss(page, 'margin-bottom: 3000px;')
-    await setMode(page, 'onion', 50)
+    await setMode(page, 'slider')
     await page.evaluate(() => scrollTo(0, document.documentElement.scrollHeight))
     const [live, frz] = await Promise.all([
       page.evaluate(() => scrollY),
       frozenY(page),
     ])
     expect(frz).toBeLessThan(live)
+  })
+
+  test('content still waiting for a scroll-reveal is visible in the snapshot', async ({ page }) => {
+    await open(page)
+    await expect(page.getByTestId('reveal')).toHaveCSS('opacity', '0') // below the fold, not revealed yet
+    await freeze(page, 'A')
+    await setMode(page, 'split')
+    await expect(frozen(page).getByTestId('reveal')).toHaveCSS('opacity', '1')
+    await expect(frozen(page).getByTestId('reveal')).toHaveCSS('transform', 'none')
   })
 
   test('split: right pane hot-reloads, left stays frozen, scroll linked', async ({ page }) => {

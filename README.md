@@ -2,7 +2,7 @@
 
 Freeze the page you're working on, keep editing, flip back to compare.
 
-Press **⌥S** and the current page is saved as a snapshot. Keep coding; hot reload updates the live page while the snapshot stays exactly as it was. Press **⌥C** to compare the two with a slider, onion skin, difference blend or side-by-side split. No undo, no screenshots, no second dev server.
+Press **⌥S** and the current page is saved as a snapshot. Keep coding; hot reload updates the live page while the snapshot stays exactly as it was. Press **⌥C** to compare the two with a slider or side by side. No undo, no screenshots, no second dev server.
 
 Dev only. Nothing ships to production.
 
@@ -72,7 +72,7 @@ Typical loop for trying variants: freeze → change → compare → like it? fre
 |---|---|---|
 | ⌥S | Alt+S | Freeze the page into a new snapshot (A, B, C…) |
 | ⌥C | Alt+C | Compare on / off (starts at slider 50%) |
-| ⌥M | Alt+M | Next compare mode: slider → onion → difference → split |
+| ⌥M | Alt+M | Switch compare mode: slider ↔ split |
 | ⌥[ | Alt+[ | Previous snapshot |
 | ⌥] | Alt+] | Next snapshot |
 
@@ -82,14 +82,14 @@ Typical loop for trying variants: freeze → change → compare → like it? fre
 
 ## Compare modes
 
+Two modes for now. Onion skin and difference blend exist in the code but are switched off while the core flow settles.
+
 | Mode | What you see | Good for |
 |---|---|---|
 | **slider** | Live left of the seam, snapshot right. Drag the seam or the toolbar range. | Before/after of a layout or color |
-| **onion** | Snapshot laid over live at adjustable opacity (default 50%). | Alignment and spacing shifts |
-| **difference** | Identical pixels turn black; only changes light up. | Spotting what changed at all |
 | **split** | Snapshot left, live right, side by side. The live pane is a real copy of your app with its own hot reload; scrolling either pane scrolls both. | Comparing whole sections |
 
-The slider and opacity go back to the middle every time you turn compare on or change mode. Your chosen mode is remembered.
+The slider goes back to the middle every time you turn compare on or change mode. Your chosen mode is remembered.
 
 In every mode the snapshot follows your scroll position, and inner scroll areas are restored to where they were when you froze.
 
@@ -103,7 +103,7 @@ In every mode the snapshot follows your scroll position, and inner scroll areas 
 - **● Freeze**: same as ⌥S.
 - **Chips**: one per snapshot on this route. Click to select, double-click to rename, **×** to delete.
 - **Mode select**: `compare: off` or a mode.
-- **Range**: slider position / onion opacity.
+- **Range**: slider position.
 - **–** collapses the toolbar to just the handle.
 
 Snapshots are kept **per route** in your browser's IndexedDB (10 per route, oldest dropped) and survive reloads and dev-server restarts. Nothing leaves your machine.
@@ -171,6 +171,7 @@ The snapshot is shown in a sandboxed, same-origin `<iframe srcdoc>` sized to you
 - Content inside shadow roots (web components) isn't captured.
 - Cross-origin stylesheets (Google Fonts CSS, CDNs) are linked rather than copied, so a change on their side would show up in old snapshots.
 - Very large pages (thousands of nodes) make bigger snapshots and a slower freeze.
+- Scroll-reveal animations: content below the fold that's still hidden by an inline style (framer-motion `whileInView`, GSAP, IntersectionObserver hooks) is shown in its revealed state. Class-based reveals (AOS) and other CSS-hidden content are captured as they are.
 
 ## Develop
 
