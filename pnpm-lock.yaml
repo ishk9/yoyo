@@ -185,7 +185,7 @@ importers:
         specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
     devDependencies:
-      '@ishk9/yoyo':
+      '@northlite/yoyo':
         specifier: workspace:*
         version: link:../../packages/yoyo
       '@tailwindcss/postcss':

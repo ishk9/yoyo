@@ -1,6 +1,6 @@
 {
-  "name": "@ishk9/yoyo",
-  "version": "0.3.0",
+  "name": "@northlite/yoyo",
+  "version": "0.3.1",
   "description": "Freeze the page you're working on, keep editing, flip back to compare.",
   "license": "MIT",
   "repository": {
