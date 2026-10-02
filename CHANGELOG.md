@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.1
+
+- Package moved to **`@northlite/yoyo`**. `@ishk9/yoyo` is deprecated and gets no further updates; switch with:
+
+  ```sh
+  npm uninstall @ishk9/yoyo && npm i -D @northlite/yoyo --include=dev
+  ```
+
+  and change the import to `import('@northlite/yoyo')`. No code changes.
+
 ## 0.3.0
 
 ### Changed

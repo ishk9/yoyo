@@ -6,6 +6,8 @@ Press **⌥S** and the current page is saved as a snapshot. Keep coding; hot rel
 
 Dev only. Nothing ships to production.
 
+> Previously published as `@ishk9/yoyo`, which is now deprecated. Same code, new name.
+
 - [Install](#install)
 - [Quick start](#quick-start)
 - [Shortcuts](#shortcuts)
@@ -19,9 +21,9 @@ Dev only. Nothing ships to production.
 ## Install
 
 ```sh
-npm i -D @ishk9/yoyo --include=dev
+npm i -D @northlite/yoyo --include=dev
 # or
-pnpm add -D @ishk9/yoyo
+pnpm add -D @northlite/yoyo
 ```
 
 > **Keep `--include=dev`.** If your shell has `NODE_ENV=production` set, a plain `npm i -D …` installs in production mode and **removes every other dev dependency** in your project (Tailwind, TypeScript, ESLint…). The flag makes npm keep them no matter what `NODE_ENV` says. Already hit this? Run `npm install --include=dev` to put them back. To make it the default for a project, add `include=dev` to its `.npmrc`. See [Troubleshooting](#toolbar-not-showing-check-node_env).
@@ -33,7 +35,7 @@ Then load it in development only.
 Create `instrumentation-client.ts` in the project root (or in `src/` if you use one):
 
 ```ts
-if (process.env.NODE_ENV === 'development') import('@ishk9/yoyo')
+if (process.env.NODE_ENV === 'development') import('@northlite/yoyo')
 ```
 
 No config change needed. In production builds the condition is constant-folded and yoyo is dropped from the bundle entirely.
@@ -43,13 +45,13 @@ No config change needed. In production builds the condition is constant-folded a
 At the top of your client entry (e.g. `src/main.ts`):
 
 ```ts
-if (import.meta.env.DEV) import('@ishk9/yoyo')
+if (import.meta.env.DEV) import('@northlite/yoyo')
 ```
 
 ### Plain HTML
 
 ```html
-<script type="module" src="/node_modules/@ishk9/yoyo/dist/index.js"></script>
+<script type="module" src="/node_modules/@northlite/yoyo/dist/index.js"></script>
 ```
 
 Point `src` at wherever your dev server serves `dist/index.js`, and only add the tag in development.
@@ -115,7 +117,7 @@ A bare import uses the defaults. To configure, call `init` yourself:
 ```ts
 // Next.js: instrumentation-client.ts
 if (process.env.NODE_ENV === 'development') {
-  import('@ishk9/yoyo').then(({ init }) =>
+  import('@northlite/yoyo').then(({ init }) =>
     init({
       keys: { freeze: 'Alt+KeyF', compare: 'Alt+KeyX' },
       maxPerRoute: 20,

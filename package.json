@@ -4,9 +4,9 @@
   "type": "module",
   "packageManager": "pnpm@12.8.1",
   "scripts": {
-    "build": "pnpm --filter @ishk9/yoyo build",
-    "test": "pnpm --filter @ishk9/yoyo test",
-    "dev:example": "pnpm --filter @ishk9/yoyo build && pnpm --filter next-app dev",
+    "build": "pnpm --filter @northlite/yoyo build",
+    "test": "pnpm --filter @northlite/yoyo test",
+    "dev:example": "pnpm --filter @northlite/yoyo build && pnpm --filter next-app dev",
     "e2e": "pnpm build && playwright test"
   },
   "devDependencies": {
