@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.6.0
+
+### Added
+
+- **`yoyo open <url> [--headless]`.** Opens the page and waits for its toolbar to connect. `--headless` is for agents and CI with no browser: it starts the Chrome, Edge, Brave or Chromium that is already installed (or `$YOYO_BROWSER`). It does not need Playwright. `yoyo stop` closes it.
+- **The agent brief ships in the package** as `yoyo.md`, so it always matches the installed version.
+- `compare` reports `class` (only the classes that changed), `href`, `alt`, `placeholder` and `aria-label` changes, and a new `htmlIdentical` field.
+
+### Fixed
+
+- A class change (for example a Tailwind edit) showed up as one element removed and one added. It now reads as a `class` change plus the style changes it causes.
+- `compare` printed `same: false` with an empty `changes` list after an edit was reverted. `same` now means "nothing visible differs". `htmlIdentical` says whether the HTML is byte-for-byte the same.
+- A URL argument (from 0.4.0) gave a misleading "no browser tab" error. It now says the argument was removed, and what to run instead.
+- A tab that reconnects to a new relay no longer becomes the default target ahead of the tab the user is working in.
+- Snapshots drop `<link rel="preload|modulepreload|prefetch">`, so the snapshot frame no longer logs "preloaded but not used" warnings.
+
+### Upgrading from 0.4.x
+
+0.5.0 changed how the CLI works, and the 0.5.0 notes did not say what to do:
+
+1. Remove Playwright: `npm uninstall playwright-core` (if nothing else uses it). Delete the `.yoyo/` folder; snapshots now live in the browser.
+2. Keep (or add) the toolbar import in development. The CLI needs it, because the CLI controls the toolbar.
+3. Drop the URL argument: `yoyo freeze http://localhost:3000/` becomes `yoyo freeze`. Use `--url <text>` to pick a tab.
+4. Headless or CI: run `yoyo open <url> --headless` first, then the same commands.
+5. `compare` prints `changes` (a list of changed elements) instead of a PNG and `changedPixels`. `--out`, `--width`, `--height`, `--wait` and `--dir` are gone.
+
 ## 0.5.0
 
 ### Changed

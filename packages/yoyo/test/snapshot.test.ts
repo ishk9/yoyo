@@ -129,6 +129,14 @@ describe('capture', () => {
     expect(html).toContain('<p>app</p>')
   })
 
+  it('drops preload/prefetch hints so the frame does not warn about unused preloads', () => {
+    document.head.innerHTML =
+      '<link rel="preload" href="/a.js" as="script"><link rel="modulepreload" href="/b.js"><link rel="prefetch" href="/c.js"><link rel="icon" href="/favicon.ico">'
+    const { html } = capture()
+    expect(html).not.toMatch(/preload|prefetch/)
+    expect(html).toContain('rel="icon"')
+  })
+
   it('strips autofocus so the sandboxed frame does not log errors', () => {
     document.body.innerHTML = '<button autofocus>Close</button><input autofocus>'
     expect(capture().html).not.toContain('autofocus')

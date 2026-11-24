@@ -1,6 +1,6 @@
 {
   "name": "@northlite/yoyo",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Freeze the page you're working on, keep editing, flip back to compare.",
   "license": "MIT",
   "repository": {
@@ -24,13 +24,14 @@
   },
   "files": [
     "dist",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "yoyo.md"
   ],
   "sideEffects": true,
   "scripts": {
     "build": "tsup",
     "test": "vitest run",
-    "prepublishOnly": "cp ../../README.md ../../LICENSE ../../CHANGELOG.md . && pnpm build && pnpm test"
+    "prepublishOnly": "cp ../../README.md ../../LICENSE ../../CHANGELOG.md ../../yoyo.md . && pnpm build && pnpm test"
   },
   "devDependencies": {
     "jsdom": "^30",

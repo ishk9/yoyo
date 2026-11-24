@@ -19,11 +19,16 @@ const PROPS = [
   'flex-direction', 'justify-content', 'align-items', 'gap', 'grid-template-columns',
   'box-shadow', 'transform', 'filter',
 ]
+// Inherited: a child that just follows its parent's change is an echo, reported once on the parent.
+const INHERITED = new Set(['color', 'visibility', 'font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'letter-spacing', 'text-align', 'text-transform'])
+// src is left out: capture pins img src to the resolved URL, so it always differs from the live attribute
+const ATTRS = ['class', 'href', 'alt', 'placeholder', 'aria-label']
 const SKIP = new Set(['SCRIPT', 'NOSCRIPT', 'STYLE', 'LINK', 'META', 'TEMPLATE', 'YOYO-ROOT', 'NEXTJS-PORTAL'])
 
 /**
  * What differs between the frozen snapshot (`before`) and the live page (`after`), element by element.
- * Children are paired greedily by tag + class, so one inserted element doesn't shift every sibling after it.
+ * Children are paired greedily by tag + class (else by tag in the same spot), so one inserted element
+ * doesn't shift every sibling after it and a class edit reads as a class edit.
  */
 export function diff(before: Document, after: Document, max = 60): { changes: Change[]; total: number } {
   const changes: Change[] = []
@@ -35,11 +40,23 @@ export function diff(before: Document, after: Document, max = 60): { changes: Ch
   const winA = before.defaultView!
   const winB = after.defaultView!
 
-  function walk(a: Element, b: Element) {
+  function walk(a: Element, b: Element, pa?: CSSStyleDeclaration, pb?: CSSStyleDeclaration) {
     const el = describe(b)
     const ta = ownText(a)
     const tb = ownText(b)
     if (ta !== tb) add({ el, prop: 'text', before: ta, after: tb })
+    for (const attr of ATTRS) {
+      const va = a.getAttribute(attr) ?? ''
+      const vb = b.getAttribute(attr) ?? ''
+      if (va === vb) continue
+      if (attr !== 'class') add({ el, prop: attr, before: va, after: vb })
+      else {
+        // only the classes that changed: 'text-black' → 'text-blue-600', not two long strings
+        const ka = va.split(/\s+/).filter(Boolean)
+        const kb = vb.split(/\s+/).filter(Boolean)
+        add({ el, prop: 'class', before: ka.filter((k) => !kb.includes(k)).join(' '), after: kb.filter((k) => !ka.includes(k)).join(' ') })
+      }
+    }
     const sa = winA.getComputedStyle(a)
     const sb = winB.getComputedStyle(b)
     // live content still waiting for a scroll-reveal; the snapshot shows it revealed (see capture)
@@ -48,20 +65,26 @@ export function diff(before: Document, after: Document, max = 60): { changes: Ch
       if (waiting && PRE_REVEAL.includes(p)) continue
       const va = sa.getPropertyValue(p)
       const vb = sb.getPropertyValue(p)
-      if (va !== vb) add({ el, prop: p, before: va, after: vb })
+      if (va === vb) continue
+      if (INHERITED.has(p) && pa && pb && pa.getPropertyValue(p) === va && pb.getPropertyValue(p) === vb) continue
+      // border color tracks currentColor; with no border it is invisible
+      if (p === 'border-top-color' && sa.getPropertyValue('border-top-width') === '0px' && sb.getPropertyValue('border-top-width') === '0px') continue
+      add({ el, prop: p, before: va, after: vb })
     }
 
     const ca = kids(a)
     const cb = kids(b)
     let i = 0
     for (const child of cb) {
-      const j = ca.findIndex((c, k) => k >= i && sig(c) === sig(child))
+      let j = ca.findIndex((c, k) => k >= i && sig(c) === sig(child))
+      // same tag in the same spot with other classes: one element whose class changed, not a swap
+      if (j < 0 && i < ca.length && tag(ca[i]) === tag(child)) j = i
       if (j < 0) {
         add({ el: describe(child), prop: 'element', before: '', after: 'added' })
         continue
       }
       for (const gone of ca.slice(i, j)) add({ el: describe(gone, b), prop: 'element', before: 'present', after: 'removed' })
-      walk(ca[j], child)
+      walk(ca[j], child, sa, sb)
       i = j + 1
     }
     for (const gone of ca.slice(i)) add({ el: describe(gone, b), prop: 'element', before: 'present', after: 'removed' })
@@ -76,8 +99,12 @@ function kids(el: Element) {
 }
 
 // capture() saves a canvas as an img with the same attributes, so pair them up
+function tag(el: Element) {
+  return el.tagName === 'CANVAS' ? 'IMG' : el.tagName
+}
+
 function sig(el: Element) {
-  return `${el.tagName === 'CANVAS' ? 'IMG' : el.tagName}.${el.getAttribute('class') ?? ''}`
+  return `${tag(el)}.${el.getAttribute('class') ?? ''}`
 }
 
 function ownText(el: Element) {
