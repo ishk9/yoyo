@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+### Changed
+
+- **The `yoyo` CLI now drives the browser tab you have open**, through the yoyo toolbar. It no longer opens a headless browser, and `playwright-core` is gone: the package has no dependencies. Snapshots are the same ones you see in the toolbar.
+- `yoyo compare` now prints `same` and a list of changed elements (text, added or removed elements, computed styles) instead of writing a PNG.
+- New commands: `yoyo off`, `yoyo status`, `yoyo stop`. `--url` picks a tab; the URL argument is gone.
+- New option `init({ cli })`: the relay port, or `false` to turn the CLI link off.
+
 ## 0.4.0
 
 ### Added

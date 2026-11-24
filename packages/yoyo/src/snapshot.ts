@@ -113,11 +113,11 @@ export function capture(doc: Document = document): Capture {
 // Scroll-reveal libraries (framer-motion whileInView, GSAP, IntersectionObserver hooks) park content below
 // the fold at an inline opacity 0 / offset until it's scrolled to. A snapshot runs no JS, so it would stay
 // hidden forever; drop those inline values so the snapshot shows the revealed state.
-const PRE_REVEAL = ['opacity', 'visibility', 'transform', 'translate', 'scale', 'rotate', 'filter']
+export const PRE_REVEAL = ['opacity', 'visibility', 'transform', 'translate', 'scale', 'rotate', 'filter']
 
 // ponytail: inline-styled only. Class-driven hiding (AOS, hover overlays) is left alone, since a CSS
 // opacity:0 below the fold is as likely to be a hover state as a pending reveal.
-function isWaitingToReveal(el: Element, win: Window) {
+export function isWaitingToReveal(el: Element, win: Window) {
   const style = (el as HTMLElement).style
   if (!style || (style.opacity !== '0' && style.visibility !== 'hidden')) return false
   return el.getBoundingClientRect().top >= win.innerHeight

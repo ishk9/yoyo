@@ -1,4 +1,5 @@
 import { capture, type SnapshotRecord } from './snapshot'
+import { diff } from './diff'
 import * as store from './store'
 
 export type Action = 'freeze' | 'compare' | 'mode' | 'prev' | 'next'
@@ -14,6 +15,8 @@ export interface Options {
   keys?: Partial<Record<Action, string>>
   /** Snapshots kept per route; the oldest is dropped past this. Default 10. */
   maxPerRoute?: number
+  /** Port of the `yoyo` CLI relay this tab connects to, or `false` to turn the CLI link off. Default 7357. */
+  cli?: number | false
 }
 
 const KEYS: Record<Action, string> = {
@@ -119,6 +122,7 @@ export function mountUI(opts: Options) {
   let toastTimer: ReturnType<typeof setTimeout>
   let sameTimer: ReturnType<typeof setTimeout>
   let savedPrefs = ''
+  let frameLoad: Promise<unknown> = Promise.resolve()
 
   const active = () => snaps.find((s) => s.id === activeId)
   const oldestFirst = () => [...snaps].reverse()
@@ -223,6 +227,7 @@ export function mountUI(opts: Options) {
     else delete prefs.active[route]
     if (rec?.id !== loaded) {
       loaded = rec?.id
+      frameLoad = new Promise((ok) => frame.addEventListener('load', ok, { once: true }))
       frame.srcdoc = rec?.html ?? ''
       same = false
     }
@@ -243,6 +248,7 @@ export function mountUI(opts: Options) {
     prefs.active[rec.route] = rec.id
     await refresh()
     toast(`Frozen ${rec.label}. Make your change, then ${pretty(keys.compare)} to compare.`)
+    return rec
   }
 
   function needSnapshot() {
@@ -359,6 +365,45 @@ export function mountUI(opts: Options) {
   document.addEventListener('load', () => shown() !== 'off' && checkSame(), true)
 
   refresh()
+
+  // What the `yoyo` CLI can do in this tab (see bridge.ts). Each returns JSON for the agent.
+  return {
+    async freeze({ name }: { name?: string }) {
+      if (name != null && !/^[\w.-]{1,40}$/.test(name)) throw new Error('--name may use letters, digits, "_", "-" and "." only')
+      const rec = await freeze()
+      if (name) await store.rename(rec.id, name)
+      await refresh()
+      return { frozen: name || rec.label, route }
+    },
+    async list() {
+      await refresh()
+      return { route, active: active()?.label, snapshots: oldestFirst().map((s) => ({ label: s.label, createdAt: s.createdAt })) }
+    },
+    async compare({ against, mode }: { against?: string; mode?: string }) {
+      await refresh()
+      if (mode != null && !MODES.includes(mode as Mode)) throw new Error(`--mode must be one of: ${MODES.join(', ')}`)
+      if (against != null) {
+        const rec = snaps.find((s) => s.label === against)
+        if (!rec) throw new Error(`no snapshot "${against}" on ${route}. Have: ${oldestFirst().map((s) => s.label).join(', ') || 'none'}`)
+        activeId = rec.id
+        render()
+      }
+      const rec = active()
+      if (!rec) throw new Error(`no snapshot on ${route} yet. Run: yoyo freeze`)
+      await frameLoad
+      await frame.contentDocument!.fonts?.ready
+      // Diff at full width, before split mode halves the frozen frame.
+      frame.style.width = '100%'
+      const result = diff(frame.contentDocument!, document)
+      frame.style.width = ''
+      setCompare(true, (mode as Mode) ?? prefs.mode)
+      return { route, against: rec.label, mode: prefs.mode, same: capture().html === rec.html, ...result }
+    },
+    off() {
+      setCompare(false)
+      return { route, compare: 'off' }
+    },
+  }
 }
 
 const IS_MAC = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform)

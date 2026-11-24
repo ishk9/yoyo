@@ -1,3 +1,4 @@
+import { connect } from './bridge'
 import { mountUI, type Options } from './ui'
 
 export type { Options }
@@ -14,7 +15,8 @@ export function init(opts: Options = {}) {
   // Split view loads the app in an iframe; don't nest another yoyo inside it.
   if (typeof window === 'undefined' || window !== window.top || window.__yoyo) return
   window.__yoyo = true // on window so it survives HMR re-evaluating this module
-  mountUI(opts)
+  const api = mountUI(opts)
+  if (opts.cli !== false) connect(api, opts.cli ?? 7357)
 }
 
 // Deferred one task so `import('@northlite/yoyo').then(m => m.init({...}))` wins over the default.

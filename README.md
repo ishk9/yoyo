@@ -131,6 +131,7 @@ if (process.env.NODE_ENV === 'development') {
 |---|---|---|---|
 | `keys` | `Partial<Record<'freeze' \| 'compare' \| 'mode' \| 'prev' \| 'next', string>>` | see [Shortcuts](#shortcuts) | `KeyboardEvent.code` joined with `+`. Modifiers: `Alt` (⌥), `Shift`, `Ctrl`, `Meta` (⌘). Examples: `'Alt+KeyF'`, `'Ctrl+Shift+Digit1'`, `'Alt+BracketLeft'`. |
 | `maxPerRoute` | `number` | `10` | Snapshots kept per route. |
+| `cli` | `number \| false` | `7357` | Port of the [CLI](#cli-for-agents-and-scripts) relay. `false` turns the CLI link off. |
 
 `init` is safe to call more than once; only the first call counts.
 
@@ -138,28 +139,31 @@ Also exported: `capture()`, which returns the snapshot record for the current pa
 
 ## CLI (for agents and scripts)
 
-AI coding agents and CI cannot press ⌥S. They can run the `yoyo` CLI. It opens the page in headless Chromium, uses the same capture as the toolbar, and saves snapshots to `./.yoyo` (add it to `.gitignore`). You do not need the toolbar import for the CLI.
+AI coding agents cannot press ⌥S. They can run `yoyo` in a terminal. The CLI drives the yoyo toolbar in the browser tab you already have open, so you see every freeze and compare happen. It opens no browser of its own and has no dependencies.
 
 ```sh
-npx yoyo freeze  http://localhost:3000/              # → {"frozen":"A","route":"/","file":".yoyo/index/A.html"}
-# …change code, wait for the dev server to rebuild…
-npx yoyo compare http://localhost:3000/              # → {"against":"A","same":false,"changedPixels":4007,"image":".yoyo/index/compare-A.png"}
-npx yoyo list    http://localhost:3000/
+npx yoyo freeze                      # → {"frozen":"A","route":"/"}
+# …change code; the page hot-reloads…
+npx yoyo compare                     # → {"against":"A","mode":"slider","same":false,"total":1,
+                                     #    "changes":[{"el":"main > h1.heading","prop":"color",
+                                     #    "before":"rgb(37, 99, 235)","after":"rgb(220, 38, 38)"}]}
+npx yoyo off
 ```
 
-- `compare` uses the newest snapshot. Pick another with `--against <label>`. Name snapshots with `freeze --name <label>`.
-- The PNG shows the snapshot, the live page, and a diff with changed pixels in magenta. `same: true` means the HTML is the same.
-- Every command prints one JSON line. On error it prints `{"error": "…"}` to stderr and exits with code 1.
-- Options: `--width`, `--height` (viewport, default 1280×800), `--wait <ms>` (settle time after load, default 500), `--dir`, `--out <png>`.
+| Command | What it does in your tab |
+|---|---|
+| `yoyo freeze [--name <label>]` | Freezes the page into a new snapshot |
+| `yoyo compare [--against <label>] [--mode slider\|split]` | Turns compare on. Prints `same` and a list of changed elements: text, added or removed elements, and computed styles |
+| `yoyo off` | Turns compare off |
+| `yoyo list` | Lists snapshots for the current route |
+| `yoyo status` | Lists the tabs connected to the CLI |
+| `yoyo stop` | Stops the background relay |
 
-The CLI needs `playwright-core` and a browser:
-
-```sh
-npm i -D playwright-core --include=dev
-npx playwright install chromium   # skip if Google Chrome is installed
-```
-
-A typical loop for an agent: `freeze` → edit → `compare` → look at the PNG → keep the change or revert it.
+- **Which tab:** the CLI uses the tab you focused last. Use `--url <text>` to pick the tab whose URL contains that text.
+- **How it connects:** the first command starts a small relay on `127.0.0.1:7357`. The toolbar in each open tab connects to it, and the relay stops after an hour with no commands. Use `--port` (or `YOYO_PORT`) with `init({ cli: <port> })` to change the port.
+- **Output:** every command prints one JSON line. On error it prints `{"error": "…"}` to stderr and exits with code 1.
+- **Turn it off:** with no relay running, the toolbar retries the connection every few seconds, and each retry logs one connection error in the console. Use `init({ cli: false })` to turn the link off.
+- **Safety:** the relay only listens on loopback. It only accepts tabs from local pages (`localhost`, `*.local`, private LAN IPs), and web pages cannot send it commands.
 
 ## Troubleshooting
 
