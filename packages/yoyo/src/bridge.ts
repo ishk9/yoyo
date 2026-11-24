@@ -7,11 +7,14 @@ export function connect(api: Api, port: number) {
   const tab = Math.random().toString(36).slice(2)
   let delay = 1000
   let live = false
+  // When the user last focused this tab. Sent on every (re)connect: a tab reconnecting to a new relay
+  // must not jump ahead of the tab the user is actually working in.
+  let focusedAt = document.hasFocus() ? Date.now() : 0
   // text/plain keeps these simple CORS requests: no preflight
   const post = (p: string, body: object) => fetch(base + p, { method: 'POST', body: JSON.stringify(body) }).catch(() => {})
 
   function open() {
-    const es = new EventSource(`${base}/events?tab=${tab}&url=${encodeURIComponent(location.href)}`)
+    const es = new EventSource(`${base}/events?tab=${tab}&focused=${focusedAt}&loaded=${Math.round(performance.timeOrigin)}&url=${encodeURIComponent(location.href)}`)
     es.onopen = () => {
       live = true
       delay = 1000
@@ -38,6 +41,9 @@ export function connect(api: Api, port: number) {
   }
 
   // the tab the user last looked at is the CLI's default target
-  addEventListener('focus', () => live && post('/seen', { tab, url: location.href }))
+  addEventListener('focus', () => {
+    focusedAt = Date.now()
+    if (live) post('/seen', { tab, url: location.href })
+  })
   open()
 }

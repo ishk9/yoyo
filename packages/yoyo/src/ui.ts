@@ -397,7 +397,10 @@ export function mountUI(opts: Options) {
       const result = diff(frame.contentDocument!, document)
       frame.style.width = ''
       setCompare(true, (mode as Mode) ?? prefs.mode)
-      return { route, against: rec.label, mode: prefs.mode, same: capture().html === rec.html, ...result }
+      // same = nothing visible differs. The HTML can differ with no visible change, e.g. Tailwind keeps a
+      // generated rule after its class is reverted; htmlIdentical tells the two apart.
+      const htmlIdentical = capture().html === rec.html
+      return { route, against: rec.label, mode: prefs.mode, same: result.total === 0, htmlIdentical, ...result }
     },
     off() {
       setCompare(false)

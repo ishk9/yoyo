@@ -139,31 +139,36 @@ Also exported: `capture()`, which returns the snapshot record for the current pa
 
 ## CLI (for agents and scripts)
 
-AI coding agents cannot press ⌥S. They can run `yoyo` in a terminal. The CLI drives the yoyo toolbar in the browser tab you already have open, so you see every freeze and compare happen. It opens no browser of its own and has no dependencies.
+AI coding agents cannot press ⌥S. They can run `yoyo` in a terminal. The CLI drives the yoyo toolbar in a browser tab of your app, so the app must import yoyo (see [Install](#install)). By default it uses the tab you already have open, and you see every freeze and compare happen. It has no dependencies.
+
+Agents: read [`yoyo.md`](yoyo.md). It also ships in the package as `node_modules/@northlite/yoyo/yoyo.md`.
 
 ```sh
-npx yoyo freeze                      # → {"frozen":"A","route":"/"}
+npx yoyo freeze --name before        # → {"frozen":"before","route":"/"}
 # …change code; the page hot-reloads…
-npx yoyo compare                     # → {"against":"A","mode":"slider","same":false,"total":1,
+npx yoyo compare --against before    # → {"against":"before","same":false,"htmlIdentical":false,"total":1,
                                      #    "changes":[{"el":"main > h1.heading","prop":"color",
                                      #    "before":"rgb(37, 99, 235)","after":"rgb(220, 38, 38)"}]}
 npx yoyo off
 ```
 
-| Command | What it does in your tab |
+| Command | What it does |
 |---|---|
+| `yoyo open <url> [--headless]` | Opens the page and waits for its toolbar. `--headless` starts your installed Chrome/Edge/Brave/Chromium with no window, for agents and CI with no browser. No Playwright. |
 | `yoyo freeze [--name <label>]` | Freezes the page into a new snapshot |
-| `yoyo compare [--against <label>] [--mode slider\|split]` | Turns compare on. Prints `same` and a list of changed elements: text, added or removed elements, and computed styles |
+| `yoyo compare [--against <label>] [--mode slider\|split]` | Turns compare on. Prints `same` and the changed elements: computed styles, text, `class` (only the classes that changed), `href`/`alt`/`placeholder`/`aria-label`, and added or removed elements |
 | `yoyo off` | Turns compare off |
 | `yoyo list` | Lists snapshots for the current route |
 | `yoyo status` | Lists the tabs connected to the CLI |
-| `yoyo stop` | Stops the background relay |
+| `yoyo stop` | Stops the background relay and the headless browser |
 
-- **Which tab:** the CLI uses the tab you focused last. Use `--url <text>` to pick the tab whose URL contains that text.
+- **`same`** means nothing visible differs. **`htmlIdentical`** says whether the captured HTML is byte-for-byte the same. It can be `false` while `same` is `true`, for example when Tailwind keeps a rule after you revert a class.
+- **Which tab:** only `open` takes a URL. Other commands use the tab you focused last, or the one `open` opened. Use `--url <text>` to pick the tab whose URL contains that text.
 - **How it connects:** the first command starts a small relay on `127.0.0.1:7357`. The toolbar in each open tab connects to it, and the relay stops after an hour with no commands. Use `--port` (or `YOYO_PORT`) with `init({ cli: <port> })` to change the port.
 - **Output:** every command prints one JSON line. On error it prints `{"error": "…"}` to stderr and exits with code 1.
 - **Turn it off:** with no relay running, the toolbar retries the connection every few seconds, and each retry logs one connection error in the console. Use `init({ cli: false })` to turn the link off.
 - **Safety:** the relay only listens on loopback. It only accepts tabs from local pages (`localhost`, `*.local`, private LAN IPs), and web pages cannot send it commands.
+- **Upgrading from 0.4.x:** see the [CHANGELOG](CHANGELOG.md#upgrading-from-04x).
 
 ## Troubleshooting
 

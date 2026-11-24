@@ -92,6 +92,8 @@ export function capture(doc: Document = document): Capture {
   }
 
   clone.querySelectorAll(STRIP).forEach((el) => el.remove())
+  // resource hints would be fetched again inside the frame and never used: a console warning each
+  clone.querySelectorAll('link[rel~=preload], link[rel~=modulepreload], link[rel~=prefetch]').forEach((el) => el.remove())
   // the sandboxed frame refuses autofocus and logs a console error for each one
   clone.querySelectorAll('[autofocus]').forEach((el) => el.removeAttribute('autofocus'))
   // A stylesheet link not in styleSheets is still loading: the live page doesn't render it yet,
