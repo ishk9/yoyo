@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0
+
+### Added
+
+- **`yoyo` CLI** for AI agents and scripts: `yoyo freeze <url>`, `yoyo compare <url>`, `yoyo list <url>`. It loads the page in headless Chromium, uses the same capture as the toolbar, and saves snapshots to `./.yoyo`. `compare` writes a snapshot | live | diff PNG and prints JSON with `same` and `changedPixels`. Needs `playwright-core` (optional peer dependency) and Chrome or Playwright's Chromium. See the README section "CLI (for agents and scripts)".
+
 ## 0.3.1
 
 - Package moved to **`@northlite/yoyo`**. `@ishk9/yoyo` is deprecated and gets no further updates; switch with:

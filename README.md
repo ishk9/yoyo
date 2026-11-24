@@ -14,6 +14,7 @@ Dev only. Nothing ships to production.
 - [Compare modes](#compare-modes)
 - [Toolbar](#toolbar)
 - [Options](#options)
+- [CLI (for agents and scripts)](#cli-for-agents-and-scripts)
 - [Troubleshooting](#troubleshooting)
 - [How it works](#how-it-works)
 - [Limits](#limits)
@@ -134,6 +135,31 @@ if (process.env.NODE_ENV === 'development') {
 `init` is safe to call more than once; only the first call counts.
 
 Also exported: `capture()`, which returns the snapshot record for the current page (`{ html, route, viewport, scroll, createdAt }`) if you want to build on it.
+
+## CLI (for agents and scripts)
+
+AI coding agents and CI cannot press ⌥S. They can run the `yoyo` CLI. It opens the page in headless Chromium, uses the same capture as the toolbar, and saves snapshots to `./.yoyo` (add it to `.gitignore`). You do not need the toolbar import for the CLI.
+
+```sh
+npx yoyo freeze  http://localhost:3000/              # → {"frozen":"A","route":"/","file":".yoyo/index/A.html"}
+# …change code, wait for the dev server to rebuild…
+npx yoyo compare http://localhost:3000/              # → {"against":"A","same":false,"changedPixels":4007,"image":".yoyo/index/compare-A.png"}
+npx yoyo list    http://localhost:3000/
+```
+
+- `compare` uses the newest snapshot. Pick another with `--against <label>`. Name snapshots with `freeze --name <label>`.
+- The PNG shows the snapshot, the live page, and a diff with changed pixels in magenta. `same: true` means the HTML is the same.
+- Every command prints one JSON line. On error it prints `{"error": "…"}` to stderr and exits with code 1.
+- Options: `--width`, `--height` (viewport, default 1280×800), `--wait <ms>` (settle time after load, default 500), `--dir`, `--out <png>`.
+
+The CLI needs `playwright-core` and a browser:
+
+```sh
+npm i -D playwright-core --include=dev
+npx playwright install chromium   # skip if Google Chrome is installed
+```
+
+A typical loop for an agent: `freeze` → edit → `compare` → look at the PNG → keep the change or revert it.
 
 ## Troubleshooting
 
