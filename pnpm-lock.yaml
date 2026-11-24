@@ -185,7 +185,7 @@ importers:
         specifier: 19.2.8
         version: 19.2.8(react@19.2.8)
     devDependencies:
-      '@ishk9/yoyo':
+      '@northlite/yoyo':
         specifier: workspace:*
         version: link:../../packages/yoyo
       '@tailwindcss/postcss':
@@ -209,9 +209,15 @@ importers:
 
   packages/yoyo:
     devDependencies:
+      '@types/node':
+        specifier: ^24.19.0
+        version: 24.19.0
       jsdom:
         specifier: ^30
         version: 30.1.1
+      playwright-core:
+        specifier: ^1.63.0
+        version: 1.63.0
       tsup:
         specifier: ^8
         version: 8.5.1(jiti@2.7.0)(postcss@8.5.28)(typescript@5.9.3)

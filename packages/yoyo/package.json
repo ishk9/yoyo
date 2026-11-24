@@ -1,6 +1,6 @@
 {
-  "name": "@ishk9/yoyo",
-  "version": "0.3.0",
+  "name": "@northlite/yoyo",
+  "version": "0.4.0",
   "description": "Freeze the page you're working on, keep editing, flip back to compare.",
   "license": "MIT",
   "repository": {
@@ -36,9 +36,22 @@
     "jsdom": "^30",
     "tsup": "^8",
     "typescript": "^5",
-    "vitest": "^5"
+    "vitest": "^5",
+    "playwright-core": "^1.63.0",
+    "@types/node": "^24.19.0"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "bin": {
+    "yoyo": "./dist/cli.js"
+  },
+  "peerDependencies": {
+    "playwright-core": ">=1.40"
+  },
+  "peerDependenciesMeta": {
+    "playwright-core": {
+      "optional": true
+    }
   }
 }

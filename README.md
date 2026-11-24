@@ -6,12 +6,15 @@ Press **⌥S** and the current page is saved as a snapshot. Keep coding; hot rel
 
 Dev only. Nothing ships to production.
 
+> Previously published as `@ishk9/yoyo`, which is now deprecated. Same code, new name.
+
 - [Install](#install)
 - [Quick start](#quick-start)
 - [Shortcuts](#shortcuts)
 - [Compare modes](#compare-modes)
 - [Toolbar](#toolbar)
 - [Options](#options)
+- [CLI (for agents and scripts)](#cli-for-agents-and-scripts)
 - [Troubleshooting](#troubleshooting)
 - [How it works](#how-it-works)
 - [Limits](#limits)
@@ -19,9 +22,9 @@ Dev only. Nothing ships to production.
 ## Install
 
 ```sh
-npm i -D @ishk9/yoyo --include=dev
+npm i -D @northlite/yoyo --include=dev
 # or
-pnpm add -D @ishk9/yoyo
+pnpm add -D @northlite/yoyo
 ```
 
 > **Keep `--include=dev`.** If your shell has `NODE_ENV=production` set, a plain `npm i -D …` installs in production mode and **removes every other dev dependency** in your project (Tailwind, TypeScript, ESLint…). The flag makes npm keep them no matter what `NODE_ENV` says. Already hit this? Run `npm install --include=dev` to put them back. To make it the default for a project, add `include=dev` to its `.npmrc`. See [Troubleshooting](#toolbar-not-showing-check-node_env).
@@ -33,7 +36,7 @@ Then load it in development only.
 Create `instrumentation-client.ts` in the project root (or in `src/` if you use one):
 
 ```ts
-if (process.env.NODE_ENV === 'development') import('@ishk9/yoyo')
+if (process.env.NODE_ENV === 'development') import('@northlite/yoyo')
 ```
 
 No config change needed. In production builds the condition is constant-folded and yoyo is dropped from the bundle entirely.
@@ -43,13 +46,13 @@ No config change needed. In production builds the condition is constant-folded a
 At the top of your client entry (e.g. `src/main.ts`):
 
 ```ts
-if (import.meta.env.DEV) import('@ishk9/yoyo')
+if (import.meta.env.DEV) import('@northlite/yoyo')
 ```
 
 ### Plain HTML
 
 ```html
-<script type="module" src="/node_modules/@ishk9/yoyo/dist/index.js"></script>
+<script type="module" src="/node_modules/@northlite/yoyo/dist/index.js"></script>
 ```
 
 Point `src` at wherever your dev server serves `dist/index.js`, and only add the tag in development.
@@ -115,7 +118,7 @@ A bare import uses the defaults. To configure, call `init` yourself:
 ```ts
 // Next.js: instrumentation-client.ts
 if (process.env.NODE_ENV === 'development') {
-  import('@ishk9/yoyo').then(({ init }) =>
+  import('@northlite/yoyo').then(({ init }) =>
     init({
       keys: { freeze: 'Alt+KeyF', compare: 'Alt+KeyX' },
       maxPerRoute: 20,
@@ -132,6 +135,31 @@ if (process.env.NODE_ENV === 'development') {
 `init` is safe to call more than once; only the first call counts.
 
 Also exported: `capture()`, which returns the snapshot record for the current page (`{ html, route, viewport, scroll, createdAt }`) if you want to build on it.
+
+## CLI (for agents and scripts)
+
+AI coding agents and CI cannot press ⌥S. They can run the `yoyo` CLI. It opens the page in headless Chromium, uses the same capture as the toolbar, and saves snapshots to `./.yoyo` (add it to `.gitignore`). You do not need the toolbar import for the CLI.
+
+```sh
+npx yoyo freeze  http://localhost:3000/              # → {"frozen":"A","route":"/","file":".yoyo/index/A.html"}
+# …change code, wait for the dev server to rebuild…
+npx yoyo compare http://localhost:3000/              # → {"against":"A","same":false,"changedPixels":4007,"image":".yoyo/index/compare-A.png"}
+npx yoyo list    http://localhost:3000/
+```
+
+- `compare` uses the newest snapshot. Pick another with `--against <label>`. Name snapshots with `freeze --name <label>`.
+- The PNG shows the snapshot, the live page, and a diff with changed pixels in magenta. `same: true` means the HTML is the same.
+- Every command prints one JSON line. On error it prints `{"error": "…"}` to stderr and exits with code 1.
+- Options: `--width`, `--height` (viewport, default 1280×800), `--wait <ms>` (settle time after load, default 500), `--dir`, `--out <png>`.
+
+The CLI needs `playwright-core` and a browser:
+
+```sh
+npm i -D playwright-core --include=dev
+npx playwright install chromium   # skip if Google Chrome is installed
+```
+
+A typical loop for an agent: `freeze` → edit → `compare` → look at the PNG → keep the change or revert it.
 
 ## Troubleshooting
 
