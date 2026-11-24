@@ -1,234 +1,266 @@
 #!/usr/bin/env node
-// Headless yoyo for agents and scripts. Same capture() as the toolbar, run in its own Chromium;
-// snapshots live on disk in ./.yoyo, not in the browser's IndexedDB. Every command prints one JSON line.
-import fs from 'node:fs'
-import path from 'node:path'
+// yoyo CLI: drives the yoyo toolbar in the browser tab you already have open. No browser automation.
+//
+//   CLI ──POST /cmd──► relay (127.0.0.1:7357, background process) ──SSE──► toolbar in your tab
+//   CLI ◄──JSON─────── relay ◄──POST /result── toolbar (ran freeze/compare/… in your tab)
+//
+// The first command starts the relay; it exits after an hour without commands. Every command prints one JSON line.
+import { spawn } from 'node:child_process'
+import http, { type IncomingMessage, type ServerResponse } from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
-import type { Browser, Page } from 'playwright-core'
-import type { Capture } from './snapshot'
 
-const HELP = `yoyo — freeze a dev page, change code, compare.
+const HELP = `yoyo — freeze the page in your browser, change code, compare. Drives the yoyo toolbar
+in the tab you have open (dev server running, yoyo imported), so it needs no extra browser.
 
 Usage:
-  yoyo freeze  <url> [--name <label>]           Save the page as a snapshot (A, B, C… unless named)
-  yoyo compare <url> [--against <label>] [--out <png>]
-                                                Capture the page now and compare it to a snapshot
-                                                (default: the newest). Writes snapshot | live | diff PNG.
-  yoyo list    <url>                            List snapshots for the url's route
+  yoyo freeze  [--name <label>]                 Freeze the tab's page into a snapshot (A, B, C… unless named)
+  yoyo compare [--against <label>] [--mode slider|split]
+                                                Show compare in the tab and print what changed vs the
+                                                snapshot (default: the selected one, usually the newest)
+  yoyo off                                      Turn compare off in the tab
+  yoyo list                                     Snapshots for the tab's current route
+  yoyo status                                   Tabs connected to the CLI
+  yoyo stop                                     Stop the background relay
 
 Options:
-  --width <px>   Viewport width (default 1280)
-  --height <px>  Viewport height (default 800)
-  --wait <ms>    Extra wait after load, for hydration and effects (default 500)
-  --dir <path>   Snapshot folder (default ./.yoyo)
+  --url <text>   Pick the tab whose URL contains <text> (default: the tab you focused last)
+  --port <n>     Relay port (default 7357, or $YOYO_PORT). Must match init({ cli: <n> }) in the app.
 
-Output is one JSON line on stdout. Errors: JSON on stderr, exit code 1.
-Needs Chrome, or Playwright's Chromium (npx playwright install chromium).`
+Output is one JSON line on stdout. Errors: {"error": …} on stderr, exit code 1.`
 
-interface Meta {
-  label: string
-  route: string
-  url: string
-  createdAt: number
-  viewport: { w: number; h: number }
-}
+const TAB_WAIT_MS = 15_000 // a tab retries the relay with backoff up to 10s, so give it one full round
+const ANSWER_MS = 30_000
+const IDLE_MS = 60 * 60_000
 
 const { values: opt, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     name: { type: 'string' },
     against: { type: 'string' },
-    out: { type: 'string' },
-    width: { type: 'string', default: '1280' },
-    height: { type: 'string', default: '800' },
-    wait: { type: 'string', default: '500' },
-    dir: { type: 'string', default: '.yoyo' },
+    mode: { type: 'string' },
+    url: { type: 'string' },
+    port: { type: 'string', default: process.env.YOYO_PORT || '7357' },
     help: { type: 'boolean', short: 'h' },
   },
 })
-const [cmd, rawUrl] = positionals
+const [cmd] = positionals
+const port = Number(opt.port)
 
-main().catch((e) => fail(e instanceof Error ? e.message : String(e)))
+if (cmd === '__relay') relay()
+else main().catch((e) => fail(e instanceof Error ? e.message : String(e)))
 
 async function main() {
   if (opt.help || !cmd) return console.log(HELP)
-  if (!['freeze', 'compare', 'list'].includes(cmd)) fail(`unknown command "${cmd}". Run yoyo --help.`)
-  if (!rawUrl) fail(`missing <url>. Example: yoyo ${cmd} http://localhost:3000/`)
-  const url = new URL(rawUrl).href
-  const route = new URL(url).pathname
-  const dir = path.resolve(opt.dir!, slug(route))
+  if (!Number.isInteger(port) || port < 1 || port > 65535) fail('--port must be a port number')
+  const args: Record<string, string> = {}
+  if (cmd === 'freeze' && opt.name != null) args.name = opt.name
+  if (cmd === 'compare' && opt.against != null) args.against = opt.against
+  if (cmd === 'compare' && opt.mode != null) args.mode = opt.mode
+  if (!['freeze', 'compare', 'off', 'list', 'status', 'stop'].includes(cmd)) fail(`unknown command "${cmd}". Run yoyo --help.`)
 
-  if (cmd === 'list') return out({ route, snapshots: list(dir).map(({ label, createdAt }) => ({ label, createdAt })) })
-
-  const browser = await launch()
-  try {
-    const page = await browser.newPage({ viewport: { width: num('width'), height: num('height') } })
-    if (cmd === 'freeze') return out(await freeze(page, url, route, dir))
-    return out(await compare(page, url, route, dir))
-  } finally {
-    await browser.close()
+  let res = await send({ cmd, args, url: opt.url }).catch(() => null)
+  if (!res) {
+    if (cmd === 'stop') return out({ stopped: false, reason: 'relay was not running' })
+    startRelay()
+    res = await retry(() => send({ cmd, args, url: opt.url }))
   }
+  if (!res.ok) fail(res.error)
+  out(res.data)
 }
 
-async function freeze(page: Page, url: string, route: string, dir: string) {
-  const existing = list(dir)
-  const label = opt.name ?? nextLabel(existing.map((m) => m.label))
-  if (!/^[\w.-]+$/.test(label)) fail(`--name may use letters, digits, "_", "-" and "." only`)
-  const cap = await grab(page, url)
-  fs.mkdirSync(dir, { recursive: true })
-  const meta: Meta = { label, route, url, createdAt: cap.createdAt, viewport: cap.viewport }
-  fs.writeFileSync(path.join(dir, `${label}.html`), cap.html)
-  fs.writeFileSync(path.join(dir, `${label}.json`), JSON.stringify(meta, null, 2))
-  return { frozen: label, route, file: rel(path.join(dir, `${label}.html`)) }
+/** POST a command to the relay. Rejects when no relay listens. */
+function send(body: object): Promise<{ ok: boolean; data?: object; error?: string }> {
+  return new Promise((ok, no) => {
+    const req = http.request({ host: '127.0.0.1', port, path: '/cmd', method: 'POST' }, (res) => {
+      let text = ''
+      res.setEncoding('utf8')
+      res.on('data', (c) => (text += c))
+      res.on('end', () => {
+        try {
+          ok(JSON.parse(text))
+        } catch {
+          no(new Error(`port ${port} answered, but not as the yoyo relay. Pick another with --port.`))
+        }
+      })
+    })
+    req.on('error', no)
+    req.end(JSON.stringify(body))
+  })
 }
 
-async function compare(page: Page, url: string, route: string, dir: string) {
-  const snaps = list(dir)
-  if (!snaps.length) fail(`no snapshots for ${route}. Run: yoyo freeze ${url}`)
-  const meta = opt.against ? snaps.find((m) => m.label === opt.against) : snaps.at(-1)
-  if (!meta) fail(`no snapshot "${opt.against}" for ${route}. Have: ${snaps.map((m) => m.label).join(', ')}`)
-  const before = fs.readFileSync(path.join(dir, `${meta!.label}.html`), 'utf8')
-  const now = await grab(page, url)
-  const same = now.html === before
-
-  // Both sides are rendered from captures, so scroll-reveal content and JS-free rendering match exactly.
-  const a = await render(page, url, before)
-  const b = await render(page, url, now.html)
-  const file = path.resolve(opt.out ?? path.join(dir, `compare-${meta!.label}.png`))
-  const { changed } = await composite(page, a, b, meta!.label, file)
-  return { route, against: meta!.label, same, changedPixels: changed, image: rel(file) }
+function startRelay() {
+  const self = fileURLToPath(import.meta.url)
+  spawn(process.execPath, [self, '__relay', '--port', String(port)], { detached: true, stdio: 'ignore' }).unref()
 }
 
-/** Load the live page and run capture() in it. */
-async function grab(page: Page, url: string): Promise<Capture> {
-  await page.goto(url, { waitUntil: 'load' })
-  await page.evaluate(() => document.fonts?.ready)
-  // ponytail: fixed settle time for hydration/effects; --wait raises it, a readiness hook if fixed waits flake
-  await page.waitForTimeout(num('wait'))
-  await page.addScriptTag({ path: fileURLToPath(new URL('./capture.global.js', import.meta.url)) })
-  return page.evaluate(() => (window as any).yoyoCapture.capture())
-}
-
-/** Full-page PNG of captured HTML, served at the original url so fonts and relative assets load same-origin. */
-async function render(page: Page, url: string, html: string): Promise<Buffer> {
-  await page.route(url, (r) => r.fulfill({ body: html, contentType: 'text/html; charset=utf-8' }))
-  try {
-    await page.goto(url, { waitUntil: 'load' })
-    await page.evaluate(() => document.fonts?.ready)
-    return await page.screenshot({ fullPage: true })
-  } finally {
-    await page.unroute(url)
-  }
-}
-
-/** snapshot | live | diff side by side, diff pixels in magenta. Returns the count of changed pixels. */
-async function composite(page: Page, a: Buffer, b: Buffer, label: string, file: string) {
-  await page.setContent(`<body style="margin:0;background:#111;color:#eee;font:14px system-ui">
-    <div id="row" style="display:inline-flex;gap:8px;padding:8px;align-items:flex-start"></div></body>`)
-  const changed = await page.evaluate(
-    async ([a, b, label]) => {
-      const load = (src: string) =>
-        new Promise<HTMLImageElement>((ok, no) => {
-          const img = new Image()
-          img.onload = () => ok(img)
-          img.onerror = no
-          img.src = src
-        })
-      const [ia, ib] = await Promise.all([load(a), load(b)])
-      const w = Math.max(ia.width, ib.width)
-      const h = Math.max(ia.height, ib.height)
-      const pixels = (img: HTMLImageElement) => {
-        const c = Object.assign(document.createElement('canvas'), { width: w, height: h })
-        const ctx = c.getContext('2d')!
-        ctx.drawImage(img, 0, 0)
-        return { c, d: ctx.getImageData(0, 0, w, h) }
-      }
-      const pa = pixels(ia)
-      const pb = pixels(ib)
-      const diff = Object.assign(document.createElement('canvas'), { width: w, height: h })
-      const dctx = diff.getContext('2d')!
-      const out = dctx.createImageData(w, h)
-      let changed = 0
-      for (let i = 0; i < out.data.length; i += 4) {
-        const differs = pa.d.data[i] !== pb.d.data[i] || pa.d.data[i + 1] !== pb.d.data[i + 1] || pa.d.data[i + 2] !== pb.d.data[i + 2] || pa.d.data[i + 3] !== pb.d.data[i + 3]
-        if (differs) changed++
-        const grey = (pb.d.data[i] + pb.d.data[i + 1] + pb.d.data[i + 2]) / 12 + 170 // faded live page under the diff
-        out.data.set(differs ? [255, 0, 255, 255] : [grey, grey, grey, 255], i)
-      }
-      dctx.putImageData(out, 0, 0)
-      const row = document.getElementById('row')!
-      for (const [title, c] of [[`${label} (frozen)`, pa.c], ['live', pb.c], [`diff: ${changed} px`, diff]] as const) {
-        const col = document.createElement('div')
-        col.textContent = title
-        c.style.cssText = 'display:block;margin-top:4px;outline:1px solid #444'
-        col.append(c)
-        row.append(col)
-      }
-      return changed
-    },
-    [`data:image/png;base64,${a.toString('base64')}`, `data:image/png;base64,${b.toString('base64')}`, label] as const,
-  )
-  fs.mkdirSync(path.dirname(file), { recursive: true })
-  await page.locator('#row').screenshot({ path: file })
-  return { changed }
-}
-
-async function launch(): Promise<Browser> {
-  let pw: typeof import('playwright-core')
-  try {
-    pw = await import('playwright-core')
-  } catch {
-    fail('playwright-core is missing. Run: npm i -D playwright-core --include=dev')
-  }
-  try {
-    return await pw!.chromium.launch({ channel: 'chrome' })
-  } catch {
+async function retry<T>(fn: () => Promise<T>): Promise<T> {
+  for (let i = 0; ; i++) {
     try {
-      return await pw!.chromium.launch()
-    } catch {
-      fail('no browser found. Install Chrome, or run: npx playwright install chromium')
+      return await fn()
+    } catch (e) {
+      if (i >= 30) throw e
+      await new Promise((ok) => setTimeout(ok, 100))
     }
   }
-  throw new Error('unreachable')
 }
 
-function list(dir: string): Meta[] {
-  if (!fs.existsSync(dir)) return []
-  return fs
-    .readdirSync(dir)
-    .filter((f) => f.endsWith('.json'))
-    .map((f) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) as Meta)
-    .sort((a, b) => a.createdAt - b.createdAt)
+// ---- relay: background process between CLI calls and browser tabs ----
+
+interface Tab {
+  url: string
+  seen: number
+  res: ServerResponse
 }
 
-/** A, B, … Z, AA, AB… — first one not taken. */
-function nextLabel(taken: string[]) {
-  for (let n = 0; ; n++) {
-    let s = ''
-    for (let i = n + 1; i > 0; i = Math.floor((i - 1) / 26)) s = String.fromCharCode(65 + ((i - 1) % 26)) + s
-    if (!taken.includes(s)) return s
+function relay() {
+  const tabs = new Map<string, Tab>()
+  const pending = new Map<string, (r: object) => void>()
+  const tabWaiters = new Set<() => void>()
+  let idle: ReturnType<typeof setTimeout>
+  const bump = () => {
+    clearTimeout(idle)
+    idle = setTimeout(() => process.exit(0), IDLE_MS)
+  }
+  bump()
+
+  const server = http.createServer((req, res) =>
+    handle(req, res).catch((e) => reply(res, 400, { ok: false, error: e instanceof Error ? e.message : String(e) })),
+  )
+
+  async function handle(req: IncomingMessage, res: ServerResponse) {
+    const u = new URL(req.url ?? '/', 'http://relay')
+    // DNS rebinding: only answer requests addressed to loopback
+    if (!/^(127\.0\.0\.1|localhost)(:\d+)?$/.test(req.headers.host ?? '')) return reply(res, 403, { error: 'bad host' })
+    const origin = req.headers.origin
+
+    if (u.pathname === '/cmd') {
+      // Browsers always send Origin on POST, so this blocks web pages from driving your tabs.
+      if (origin || req.method !== 'POST') return reply(res, 403, { error: 'CLI only' })
+      bump()
+      const { cmd, args, url } = JSON.parse((await body(req)) || '{}')
+      if (cmd === 'stop') {
+        reply(res, 200, { ok: true, data: { stopped: true } })
+        return setTimeout(() => process.exit(0), 50)
+      }
+      if (cmd === 'status')
+        return reply(res, 200, { ok: true, data: { port, tabs: sorted(url).map((t) => ({ url: t.url, lastFocused: t.seen })) } })
+      const tab = sorted(url)[0] ?? (await waitForTab(url))
+      if (!tab)
+        return reply(res, 200, {
+          ok: false,
+          error: `no browser tab${url ? ` with "${url}" in its URL` : ''} is connected. Open your app in the browser with the dev server running and yoyo imported (the toolbar shows at the bottom). Then run the command again.`,
+        })
+      const id = Math.random().toString(36).slice(2)
+      const result = await new Promise<object>((ok) => {
+        const timer = setTimeout(() => {
+          pending.delete(id)
+          ok({ ok: false, error: `the tab (${tab.url}) did not answer within ${ANSWER_MS / 1000}s` })
+        }, ANSWER_MS)
+        pending.set(id, (r) => {
+          clearTimeout(timer)
+          ok(r)
+        })
+        tab.res.write(`data: ${JSON.stringify({ id, cmd, args })}\n\n`)
+      })
+      return reply(res, 200, result)
+    }
+
+    // Browser endpoints: only pages served from this machine or the local network.
+    if (!origin || !localOrigin(origin)) return reply(res, 403, { error: 'origin not allowed' })
+    res.setHeader('Access-Control-Allow-Origin', origin)
+
+    if (u.pathname === '/events' && req.method === 'GET') {
+      const id = u.searchParams.get('tab') ?? ''
+      res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store', Connection: 'keep-alive' })
+      res.write(': connected\n\n')
+      tabs.set(id, { url: u.searchParams.get('url') ?? '', seen: Date.now(), res })
+      const ping = setInterval(() => res.write(': ping\n\n'), 20_000)
+      req.on('close', () => {
+        clearInterval(ping)
+        if (tabs.get(id)?.res === res) tabs.delete(id)
+      })
+      for (const w of tabWaiters) w()
+      return
+    }
+    if (req.method === 'POST' && (u.pathname === '/seen' || u.pathname === '/result')) {
+      const msg = JSON.parse((await body(req)) || '{}')
+      const tab = tabs.get(msg.tab)
+      if (tab) {
+        tab.url = msg.url ?? tab.url
+        if (u.pathname === '/seen') tab.seen = Date.now()
+      }
+      if (u.pathname === '/result') {
+        pending.get(msg.id)?.(msg.ok ? { ok: true, data: msg.data } : { ok: false, error: msg.error })
+        pending.delete(msg.id)
+      }
+      return reply(res, 204)
+    }
+    reply(res, 404, { error: 'not found' })
+  }
+  server.on('error', () => process.exit(1)) // port taken, e.g. by a relay another CLI call just started
+  server.listen(port, '127.0.0.1')
+
+  function sorted(url?: string) {
+    return [...tabs.values()].filter((t) => !url || t.url.includes(url)).sort((a, b) => b.seen - a.seen)
+  }
+
+  function waitForTab(url?: string) {
+    return new Promise<Tab | undefined>((ok) => {
+      const check = () => {
+        const t = sorted(url)[0]
+        if (!t) return
+        done(t)
+      }
+      const done = (t?: Tab) => {
+        clearTimeout(timer)
+        tabWaiters.delete(check)
+        ok(t)
+      }
+      const timer = setTimeout(() => done(), TAB_WAIT_MS)
+      tabWaiters.add(check)
+    })
   }
 }
 
-/** '/' → 'index', '/blog/post' → 'blog__post'. */
-function slug(route: string) {
-  return route.replace(/^\/+|\/+$/g, '').replace(/[^\w.-]+/g, '__') || 'index'
+/** localhost, loopback, *.localhost, *.local and private LAN addresses. */
+function localOrigin(origin: string) {
+  let host: string
+  try {
+    host = new URL(origin).hostname.replace(/^\[|\]$/g, '')
+  } catch {
+    return false
+  }
+  return (
+    host === 'localhost' ||
+    host === '::1' ||
+    /\.(localhost|local)$/.test(host) ||
+    /^127\./.test(host) ||
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+  )
 }
 
-function num(key: 'width' | 'height' | 'wait') {
-  const n = Number(opt[key])
-  if (!Number.isFinite(n) || n < 0) fail(`--${key} must be a number`)
-  return n
+function body(req: IncomingMessage) {
+  return new Promise<string>((ok) => {
+    let text = ''
+    req.setEncoding('utf8')
+    req.on('data', (c) => (text += c))
+    req.on('end', () => ok(text))
+  })
 }
 
-function rel(p: string) {
-  return path.relative(process.cwd(), p) || p
+function reply(res: ServerResponse, status: number, json?: object) {
+  res.writeHead(status, json ? { 'Content-Type': 'application/json' } : {})
+  res.end(json ? JSON.stringify(json) : undefined)
 }
-function out(o: object) {
-  console.log(JSON.stringify(o))
+
+function out(o: object | undefined) {
+  console.log(JSON.stringify(o ?? {}))
 }
-function fail(error: string): never {
+
+function fail(error = 'unknown error'): never {
   console.error(JSON.stringify({ error }))
   process.exit(1)
 }
